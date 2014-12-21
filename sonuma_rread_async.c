@@ -11,6 +11,10 @@
 rmc_wq_t *wq;
 rmc_cq_t *cq;
 
+void handler(uint8_t tid, uint8_t head, void *owner) {
+    // do nothing
+}
+
 int main(int argc, char **argv)
 {
     uint64_t op_count_issued = 0, op_count_completed = 0;
@@ -36,6 +40,9 @@ int main(int argc, char **argv)
         fprintf(stdout, "Local buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
     }
+
+    kal_reg_lbuff(0, &lbuff, buf_size*sizeof(uint8_t) / PAGE_SIZE);
+    /*
     retcode = mlock(lbuff, buf_size*sizeof(uint8_t));
     if (retcode != 0) fprintf(stdout, "Local buffer mlock returned %d (buffer size = %d bytes)\n", retcode, buf_size*sizeof(uint8_t));
 
@@ -46,15 +53,17 @@ int main(int argc, char **argv)
         counter = i*sizeof(uint8_t)/PAGE_SIZE;
         call_magic_2_64((uint64_t)&(lbuff[i]), BUFFER, counter);
     }
+    */
 
     //context buffer - exposed to remote nodes
 
-    //if (snid == 1) {	//WARNING: Only app that is given snid = 1 registers context
     ctx = memalign(PAGE_SIZE, ctx_size*sizeof(uint8_t));
     if (ctx == NULL) {
         fprintf(stdout, "Context buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
     }
+    kal_reg_ctx(0, &ctx, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
+    /*
     retcode = mlock(ctx, ctx_size*sizeof(uint8_t));
     if (retcode != 0) fprintf(stdout, "Context buffer mlock returned %d\n", retcode);
 
@@ -67,10 +76,13 @@ int main(int argc, char **argv)
         counter++;
         call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, counter);
     }
-    //}
+    */
     //allocate queues
 
-    wq = memalign(PAGE_SIZE, PAGESIZE);
+    kal_reg_wq(0, &wq);
+    kal_reg_cq(0, &cq);
+    /* ustiugov
+    wq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (wq == NULL) {
         fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
@@ -78,7 +90,7 @@ int main(int argc, char **argv)
     retcode = mlock(wq, PAGE_SIZE);
     if (retcode != 0) fprintf(stdout, "WQueue mlock returned %d\n", retcode);
 
-    cq = memalign(PAGE_SIZE, PAGESIZE);
+    cq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (cq == NULL) {
         fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
@@ -94,6 +106,7 @@ int main(int argc, char **argv)
         wq->q[i].SR = 0;
     }
     call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
+    */ // ustiugov
 
     //fprintf(stdout, "Starting address of wq is %"PRIu64"\nAddresses of first entry's fields are:\n\op=%"PRIu64"\nnid=%"PRIu64"\ntid=%"PRIu64"\ncid=%"PRIu64"\noffset=%"PRIu64"\nlength=%"PRIu64"\nbuff=%"PRIu64, (uint64_t)wq, (uint64_t)&(wq->q[0].op), (uint64_t)&(wq->q[0].nid), (uint64_t)&(wq->q[0].tid), (uint64_t)&(wq->q[0].cid), (uint64_t)&(wq->q[0].offset), (uint64_t)&(wq->q[0].length), (uint64_t)&(wq->q[0].buff));
     /* fprintf(stdout, "Starting address of wq is %"PRIu64"\n", (uint64_t)wq);
@@ -104,6 +117,7 @@ int main(int argc, char **argv)
        fprintf(stdout, "[uB] size of context is %d\n", ctx_size);
        */
     //setup completion queue
+    /* ustiugov
     cq->tail = 0;
     cq->SR = 1;
 
@@ -116,13 +130,23 @@ int main(int argc, char **argv)
     //register ctx and buffer sizes, needed for the flexi version of the app
     call_magic_2_64(42, BUFFER_SIZE, buf_size);
     call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
+    */ //ustiugov
 
     fprintf(stdout,"Init done! Will execute %"PRIu64" WQ operations - ASYNC!\n NOTE: This app is in FLEXI mode! (snid = %d)\n", num_iter, snid);
-    call_magic_2_64(1, ALL_SET, 1);
+    kal_signal_all_set();
+    //call_magic_2_64(1, ALL_SET, 1); ustiugov
 
     //uB kernel
     uint8_t wq_head, cq_tail;
 
+    while(op_count_completed < num_iter) {
+        rmc_check_cq(wq, cq, &handler, NULL);
+        lbuff_slot = op_count_issued;	//(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
+        ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
+        rmc_rread_async(wq, lbuff_slot, (char *)lbuff_slot, snid, 0, ctx_offset, 42);
+        op_count_issued++;
+    }
+/*
     while(op_count_completed < num_iter) {
         //sync
         //fprintf(stdout,"wq_head is %"PRIu8"\n", wq->head);
@@ -168,6 +192,7 @@ int main(int argc, char **argv)
         wq->SR ^= 1;
     }
 }
+*/
 
 free(lbuff);
 free(ctx);

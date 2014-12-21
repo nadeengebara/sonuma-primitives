@@ -1,9 +1,18 @@
+/**
+ * Magic calls to Flexus.
+ *
+ * Copyright (C) EPFL. All rights reserved.
+ * @authors daglis
+ */
+
 #ifndef MAGIC_IFACE_H
 #define MAGIC_IFACE_H
 
 //#ifdef __cplusplus
 //extern "C" {
 //#endif
+
+// TODO: cleanup obsolete functions
 
 static uint32_t global1;
 static uint32_t global2;
@@ -38,7 +47,7 @@ void  call_magic_0_no_ret_32( uint32_t lba_function){
         "mov %0, %%l0\n\t"
         "sethi 42, %%g0\n\t"
 		:
-        : "r"(lba_function) 
+        : "r"(lba_function)
 		: "%l0"
     );
 }
@@ -49,7 +58,7 @@ void  call_magic_0_no_ret_64( uint64_t lba_function){
         "mov %0, %%l0\n\t"
         "sethi 42, %%g0\n\t"
 		:
-        : "r"(lba_function) 
+        : "r"(lba_function)
 		: "%l0"
     );
 }
@@ -94,9 +103,9 @@ uint32_t  call_magic_1_32(uint32_t lba_function, uint32_t arg1){
         "mov %1, %%l0\n\t"
         "mov %2, %%l1\n\t"
         "sethi 42, %%g0\n\t"
-        "mov %%l0, %0\n\t"  
-        : "=r"(ret_value)    
-        : "r"(lba_function), "r"(arg1)			
+        "mov %%l0, %0\n\t"
+        : "=r"(ret_value)
+        : "r"(lba_function), "r"(arg1)
         : "%l0", "%l1"
     );
 
@@ -111,9 +120,9 @@ uint64_t  call_magic_1_64(uint64_t lba_function, uint64_t arg1){
         "mov %1, %%l0\n\t"
         "mov %2, %%l1\n\t"
         "sethi 42, %%g0\n\t"
-        "mov %%l0, %0\n\t"  
-        : "=r"(ret_value)    
-        : "r"(lba_function), "r"(arg1)			
+        "mov %%l0, %0\n\t"
+        : "=r"(ret_value)
+        : "r"(lba_function), "r"(arg1)
         : "%l0", "%l1"
     );
 
@@ -178,7 +187,7 @@ uint64_t  call_magic_3_64(uint64_t son_function, uint64_t arg1, uint64_t arg2, u
 static inline __attribute__ ((always_inline))
 void lbacall_return(void) {
 	asm volatile ("restore\n\t");
-	
+
 	do {
 		asm volatile ("sethi 100, %g0\n\t");
 		asm volatile ("nop\n\t");
@@ -190,7 +199,7 @@ void lbacall_return(void) {
 /**************************** GET VALUES FROM SIMULATOR ******************************/
 // The following correspondance must hold in breakpoint_tracker.cc and in v9Decoder code,
 // for both the trace and timing simulators
-//      Functionality      ---->  Magic Instruction Number   
+//      Functionality      ---->  Magic Instruction Number
 // LBA_GET_FUNCTION_ARG0				101
 // LBA_GET_FUNCTION_ARG1				102
 // LBA_GET_FUNCTION_ARG2				103
@@ -287,4 +296,4 @@ void lbacall_flush_writes(void){
 //} /* closing brace for extern "C" */
 //#endif
 
-#endif
+#endif /* MAGIC_IFACE_H */

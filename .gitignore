@@ -1,0 +1,10 @@
+# Compiled sources
+*.a
+*_dep
+*_o
+*Makefile*depend*
+*.so
+*.fresh
+
+# Vim intermediate
+*.swp

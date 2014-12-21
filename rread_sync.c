@@ -10,9 +10,8 @@
 #include <stdio.h>
 #include <math.h>
 #include "magic_iface.h"
-//#include </net/icfiler3/vol/units/parsa/parsacom/daglis/soNUMA/magic_iface.h>
-//#include </net/icfiler3/vol/units/parsa/parsacom/daglis/soNUMA/alex-flexus-codebase/flexus-soNUMA-multinode_newInterface/components/Common/son_headers/RMCdefines.h>
-#include "son_asm.h"	//this head file also includes RMCdefines.h
+#include "libsonuma/magic_iface.h"
+#include "libsonuma/son_asm.h"
 
 #define ITERS 100000
 
@@ -40,7 +39,7 @@ int main(int argc, char **argv)
   uint64_t ctx_offset;
  
   //local buffer
-  lbuff = memalign(PAGESIZE, buf_size*sizeof(uint8_t));
+  lbuff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
   if (lbuff == NULL) {
 	fprintf(stdout, "Local buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
 	return 1;
@@ -52,13 +51,13 @@ int main(int argc, char **argv)
   //initialize the local buffer
   for(i=0; i<(buf_size*sizeof(uint8_t)); i++) {
     lbuff[i] = 0;
-    counter = i*sizeof(uint8_t)/PAGESIZE;
+    counter = i*sizeof(uint8_t)/PAGE_SIZE;
     call_magic_2_64((uint64_t)&(lbuff[i]), BUFFER, counter);
   }
 
   //context buffer - exposed to remote nodes
 //if (snid == 1) {	//WARNING: Only app that is given snid = 1 registers context
-  ctxbuff = memalign(PAGESIZE, ctx_size*sizeof(uint8_t));
+  ctxbuff = memalign(PAGE_SIZE, ctx_size*sizeof(uint8_t));
   if (ctxbuff == NULL) {
 	fprintf(stdout, "Context buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
 	return 1;
@@ -70,7 +69,7 @@ int main(int argc, char **argv)
   //initialize the context buffer
   ctxbuff[0] = 123;
   call_magic_2_64((uint64_t)ctxbuff, CONTEXTMAP, 0);
-  for(i=0; i<ctx_size; i+=PAGESIZE) {
+  for(i=0; i<ctx_size; i+=PAGE_SIZE) {
     *(ctxbuff + i) = 123;
     counter++;
     call_magic_2_64((uint64_t)&(ctxbuff[i]), CONTEXT, counter);
@@ -79,24 +78,24 @@ int main(int argc, char **argv)
 //}
 
   //allocate queues
-  //wq = memalign(PAGESIZE, sizeof(rmc_wq_t));
-  wq = memalign(PAGESIZE, PAGESIZE);		//Should allocate full page
+  //wq = memalign(PAGE_SIZE, sizeof(rmc_wq_t));
+  wq = memalign(PAGE_SIZE, PAGESIZE);		//Should allocate full page
   if (wq == NULL) {
 	fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
 	return 1;
   } 
   //retcode = mlock(wq, sizeof(rmc_wq_t));
-  retcode = mlock(wq, PAGESIZE);
+  retcode = mlock(wq, PAGE_SIZE);
   if (retcode != 0)  fprintf(stdout, "WQueue mlock returned %d\n", retcode);
   
-  //cq = memalign(PAGESIZE, sizeof(rmc_cq_t));	//Should allocate full page
-  cq = memalign(PAGESIZE, PAGESIZE);
+  //cq = memalign(PAGE_SIZE, sizeof(rmc_cq_t));	//Should allocate full page
+  cq = memalign(PAGE_SIZE, PAGESIZE);
   if (cq == NULL) {
 	fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
 	return 1;
   } 
   //retcode = mlock(cq, sizeof(rmc_cq_t));
-  retcode = mlock(cq, PAGESIZE);
+  retcode = mlock(cq, PAGE_SIZE);
   if (retcode != 0) fprintf(stdout, "CQueue mlock returned %d\n", retcode);
   
   uint8_t operation = (uint8_t)RMC_INVAL;

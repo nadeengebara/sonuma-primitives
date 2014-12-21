@@ -1,9 +1,17 @@
-//#ifndef RMC_DEFS
-//#define RMC_DEFS
+/**
+ * soNUMA defines and structures.
+ *
+ * Copyright (C) EPFL. All rights reserved.
+ * @authors daglis, novakovic, ustiugov
+ */
 
-#define version4_1	//soNUMA protocol version that is being used
+#ifndef H_RMC_DEFINES
+#define H_RMC_DEFINES
+
+#define version2_1	//soNUMA protocol version that is being used (2.0 otherwise)
 
 #define MAX_NUM_WQ	128
+#define DEFAULT_CTX_VAL 123
 
 //breakpoint IDs
 #define WQUEUE  		1
@@ -29,13 +37,12 @@
 #define CONTEXT_SIZE		21
 #define NEWWQENTRY_START	22
 
-	
+
 //stuff for Page Walks
 #define PT_I 3
 #define PT_J 10
 #define PT_K 4
 
-#define PAGESIZE 8192
 #define PAGE_SIZE 8192
 #define PAGE_BITS 0xffffffffffffe000
 
@@ -56,32 +63,37 @@
 
 #define PADBYTES 60
 
-#define WQ_COMPACTION
+////////////////////////// KAL DEFINES/////////////////////////////////
+#define KAL_REG_WQ 1
+#define KAL_UNREG_WQ 6
+#define KAL_REG_CQ 5
+#define KAL_REG_CTX 3
+#define KAL_PIN_BUFF 4
+#define KAL_PIN 14
 
-#ifndef WQ_COMPACTION
-typedef struct wq_entry{
-        volatile uint8_t op;
-        uint8_t nid;
-        uint8_t cid;
-        uint64_t offset;
-        uint64_t length;
-        void* buff;
-} wq_entry_t;
+#define RMC_KILL 10
 
-#else 
+#define BLOCK_SIZE 64
+#define BBUFF_SIZE 16
+#define PL_SIZE 60 //payload size
 
-#ifdef version4_1
+#define RW_THR 16//16384//4096//16 //16384//256 //8192 //256	//daglis TODO: Why is this only 16? (was 1K in the paper)
+#define RREAD 1
+#define RWRITE 0
+///////////////////////////////////////////////////////////////////////
+
+#ifdef version2_1
 typedef struct wq_entry{
   //first double-word (8 bytes)
         uint8_t op : 6;		//up to 64 soNUMA ops
         uint8_t SR : 1;		//sense reverse bit
         uint8_t valid : 1;	//set with a new WQ entry, unset when entry completed. Required for pipelining async ops
-        uint64_t buf_addr : 42;		
+        uint64_t buf_addr : 42;
 	uint8_t cid : 4;
         uint16_t nid : 10;
   //second double-word (8 bytes)
-	uint64_t offset : 40;		
-        uint64_t length : 24;	
+	uint64_t offset : 40;
+        uint64_t length : 24;
 } wq_entry_t;
 
 #else
@@ -95,23 +107,23 @@ typedef struct wq_entry{
 	uint64_t offset : 40;		//37 + 3 bits for alignment
         uint64_t length : 24;		//19 + 5 bits for alignment - length in terms of blocks
 } wq_entry_t;
-#endif	//ifdef version4_1
-#endif
+#endif	//ifdef version2_1
+
 typedef struct cq_entry{
 	volatile uint8_t SR : 1; 	//sense reverse bit
-    	volatile uint8_t tid : 7;	
+    	volatile uint8_t tid : 7;
 } cq_entry_t;
 
 typedef struct rmc_wq {
   wq_entry_t q[MAX_NUM_WQ];
-  uint8_t head;	
+  uint8_t head;
   uint8_t SR : 1;	//sense reverse bit
 } rmc_wq_t;
 
 typedef struct rmc_cq {
   cq_entry_t q[MAX_NUM_WQ];
-  uint8_t tail;		
+  uint8_t tail;
   uint8_t SR : 1;	//sense reverse bit
 } rmc_cq_t;
 
-//#endif
+#endif /* H_RMC_DEFINES */
