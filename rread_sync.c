@@ -27,11 +27,11 @@ int main(int argc, char **argv)
 
   int num_iter = (int)ITERS;
   if (argc != 4) {
-	fprintf(stdout,"Usage: ./uBench <target_nid> <context_size> <buffer_size>\n");
-	return 1;  
+fprintf(stdout,"Usage: ./uBench <target_nid> <context_size> <buffer_size>\n");
+return 1;  
   }
   int snid = atoi(argv[1]);
-  uint64_t ctx_size = atoi(argv[2]);	
+  uint64_t ctx_size = atoi(argv[2]);
   uint64_t buf_size = atoi(argv[3]);
 
   uint8_t *lbuff, *ctxbuff;  
@@ -41,8 +41,8 @@ int main(int argc, char **argv)
   //local buffer
   lbuff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
   if (lbuff == NULL) {
-	fprintf(stdout, "Local buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
-	return 1;
+fprintf(stdout, "Local buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
+return 1;
   } 
   retcode = mlock(lbuff, buf_size*sizeof(uint8_t));
   if (retcode != 0) fprintf(stdout, "Local buffer mlock returned %d (buffer size = %d bytes)\n", retcode, buf_size*sizeof(uint8_t));
@@ -56,11 +56,11 @@ int main(int argc, char **argv)
   }
 
   //context buffer - exposed to remote nodes
-//if (snid == 1) {	//WARNING: Only app that is given snid = 1 registers context
+//if (snid == 1) {//WARNING: Only app that is given snid = 1 registers context
   ctxbuff = memalign(PAGE_SIZE, ctx_size*sizeof(uint8_t));
   if (ctxbuff == NULL) {
-	fprintf(stdout, "Context buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
-	return 1;
+fprintf(stdout, "Context buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
+return 1;
   } 
   retcode = mlock(ctxbuff, ctx_size*sizeof(uint8_t));
   if (retcode != 0) fprintf(stdout, "Context buffer mlock returned %d\n", retcode);
@@ -74,25 +74,25 @@ int main(int argc, char **argv)
     counter++;
     call_magic_2_64((uint64_t)&(ctxbuff[i]), CONTEXT, counter);
   } 
-//	fprintf(stdout, "Allocated %d pages for the context\n", counter);
+//fprintf(stdout, "Allocated %d pages for the context\n", counter);
 //}
 
   //allocate queues
   //wq = memalign(PAGE_SIZE, sizeof(rmc_wq_t));
-  wq = memalign(PAGE_SIZE, PAGESIZE);		//Should allocate full page
+  wq = memalign(PAGE_SIZE, PAGESIZE);//Should allocate full page
   if (wq == NULL) {
-	fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
-	return 1;
+fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
+return 1;
   } 
   //retcode = mlock(wq, sizeof(rmc_wq_t));
   retcode = mlock(wq, PAGE_SIZE);
   if (retcode != 0)  fprintf(stdout, "WQueue mlock returned %d\n", retcode);
   
-  //cq = memalign(PAGE_SIZE, sizeof(rmc_cq_t));	//Should allocate full page
+  //cq = memalign(PAGE_SIZE, sizeof(rmc_cq_t));//Should allocate full page
   cq = memalign(PAGE_SIZE, PAGESIZE);
   if (cq == NULL) {
-	fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
-	return 1;
+fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
+return 1;
   } 
   //retcode = mlock(cq, sizeof(rmc_cq_t));
   retcode = mlock(cq, PAGE_SIZE);
@@ -140,51 +140,51 @@ int main(int argc, char **argv)
   //fprintf(stdout,"WQ head is %"PRIu64" and WQ tail is %"PRIu64"\n", wq->head, wq->tail);
   //fprintf(stdout,"The address of the WQ structure is %"PRIu64", the address of WQ head is %"PRIu64", and the address of WQ tail is %"PRIu64"\n",(uint64_t)wq, &(wq->head), &(wq->tail));
  /* if (snid == 0) {
-	  fprintf(stdout, "This node is a server\n");
-	  while (1) ;		//this node will just be a server
+  fprintf(stdout, "This node is a server\n");
+  while (1) ;//this node will just be a server
   }*/
   while(op_count < num_iter) {
-    lbuff_slot = op_count;	//(lbuff + ((op_count * SLOT_SIZE) % buf_size));
-    ctx_offset = op_count;	//((snid << 16) + op_count * SLOT_SIZE) % ctx_size;
+    lbuff_slot = op_count;//(lbuff + ((op_count * SLOT_SIZE) % buf_size));
+    ctx_offset = op_count;//((snid << 16) + op_count * SLOT_SIZE) % ctx_size;
     //////////////////////
-      	  wq_head = wq->head;
-	  //fprintf(stdout, "wq_head is %d, and Queue Entry that was just enqueued has: \n op = %d\n, SR = %d\n, cid = %d\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = %ld\n", wq_head, wq->q[wq_head].op, wq->q[wq_head].SR, wq->q[wq_head].cid, wq->q[wq_head].nid, wq->q[wq_head].buf_addr, wq->q[wq_head].offset, wq->q[wq_head].length);
-	  //fprintf(stdout, "About to write a WQ entry with \n  op = %d\n, SR = %d\n, cid = 0\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = 42\n", RMC_READ, wq->SR, snid, lbuff_slot, ctx_offset);
-	  call_magic_2_64(wq_head, NEWWQENTRY_START, op_count);
-	  create_wq_entry(RMC_READ, wq->SR, 0, snid, (uint64_t)lbuff_slot, ctx_offset, 42, (uint64_t)&(wq->q[wq_head]));
-	 // create_wq_entry(1, 0, 3, 4, 5, 6, 7, (uint64_t)&(wq->q[wq_head]));
-	  call_magic_2_64(wq_head, NEWWQENTRY, op_count);
+        wq_head = wq->head;
+  //fprintf(stdout, "wq_head is %d, and Queue Entry that was just enqueued has: \n op = %d\n, SR = %d\n, cid = %d\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = %ld\n", wq_head, wq->q[wq_head].op, wq->q[wq_head].SR, wq->q[wq_head].cid, wq->q[wq_head].nid, wq->q[wq_head].buf_addr, wq->q[wq_head].offset, wq->q[wq_head].length);
+  //fprintf(stdout, "About to write a WQ entry with \n  op = %d\n, SR = %d\n, cid = 0\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = 42\n", RMC_READ, wq->SR, snid, lbuff_slot, ctx_offset);
+  call_magic_2_64(wq_head, NEWWQENTRY_START, op_count);
+  create_wq_entry(RMC_READ, wq->SR, 0, snid, (uint64_t)lbuff_slot, ctx_offset, 42, (uint64_t)&(wq->q[wq_head]));
+ // create_wq_entry(1, 0, 3, 4, 5, 6, 7, (uint64_t)&(wq->q[wq_head]));
+  call_magic_2_64(wq_head, NEWWQENTRY, op_count);
 
-//	  fprintf(stdout, "wq_head is %d, and Queue Entry that was just enqueued has: \n op = %d\n, SR = %d\n, cid = %d\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = %ld, valid = %d\n", wq_head, wq->q[wq_head].op, wq->q[wq_head].SR, wq->q[wq_head].cid, wq->q[wq_head].nid, wq->q[wq_head].buf_addr, wq->q[wq_head].offset, wq->q[wq_head].length, wq->q[wq_head].valid);
-	
-	  wq->head =  wq->head + 1;
-      	  if (wq->head >= MAX_NUM_WQ) {
-	  	wq->head = 0;
-		wq->SR ^= 1;
-	  }
-	  
-  	 // fprintf(stdout,"WQ head is %"PRIu64" and WQ tail is %"PRIu64"\n", wq->head, wq->tail);
-  	 // fprintf(stdout, "CQ tid of first entry is at %"PRIu64", buff of first entry is at %"PRIu64\
-					"\nop tid second entry is at %"PRIu64", buff of second entry is at %"PRIu64"\n", \
-					&(cq->q[0].tid), &(cq->q[0].buff), &(cq->q[1].tid), &(cq->q[1].buff));
-	  //sync
-	  cq_tail = cq->tail;
-//  	  fprintf(stdout,"Will now poll CQ address: %"PRIu64"\n", &(cq->q[cq_tail]));
-	  while(cq->q[cq_tail].SR != cq->SR) {
-  //	  	fprintf(stdout,"cq->q[%"PRIu8"].SR = %"PRIu8"\tcq->q[%"PRIu8"].tid = %"PRIu8"\n", cq_tail, cq->q[cq_tail].SR, cq_tail, cq->q[cq_tail].tid);
-	  } 
+//  fprintf(stdout, "wq_head is %d, and Queue Entry that was just enqueued has: \n op = %d\n, SR = %d\n, cid = %d\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = %ld, valid = %d\n", wq_head, wq->q[wq_head].op, wq->q[wq_head].SR, wq->q[wq_head].cid, wq->q[wq_head].nid, wq->q[wq_head].buf_addr, wq->q[wq_head].offset, wq->q[wq_head].length, wq->q[wq_head].valid);
+
+  wq->head =  wq->head + 1;
+        if (wq->head >= MAX_NUM_WQ) {
+  wq->head = 0;
+wq->SR ^= 1;
+  }
+  
+   // fprintf(stdout,"WQ head is %"PRIu64" and WQ tail is %"PRIu64"\n", wq->head, wq->tail);
+   // fprintf(stdout, "CQ tid of first entry is at %"PRIu64", buff of first entry is at %"PRIu64\
+"\nop tid second entry is at %"PRIu64", buff of second entry is at %"PRIu64"\n", \
+&(cq->q[0].tid), &(cq->q[0].buff), &(cq->q[1].tid), &(cq->q[1].buff));
+  //sync
+  cq_tail = cq->tail;
+//    fprintf(stdout,"Will now poll CQ address: %"PRIu64"\n", &(cq->q[cq_tail]));
+  while(cq->q[cq_tail].SR != cq->SR) {
+  //  fprintf(stdout,"cq->q[%"PRIu8"].SR = %"PRIu8"\tcq->q[%"PRIu8"].tid = %"PRIu8"\n", cq_tail, cq->q[cq_tail].SR, cq_tail, cq->q[cq_tail].tid);
+  } 
           #ifdef version4_1
-		wq->q[cq->q[cq_tail].tid].valid = 0;		
-	  #endif
-	  call_magic_2_64(cq_tail, WQENTRYDONE, op_count);
-	  
-//	  lbuff_slot = (uint8_t*)wq->q[cq->q[cq_tail].tid].buf_addr;
-  //	  fprintf(stdout,"Reading local buffer. Value: %"PRIu8"\n", *lbuff_slot);
-	  cq->tail = cq->tail + 1;
-	  if (cq->tail >= MAX_NUM_WQ) {
-		cq->tail = 0;
-		cq->SR ^= 1;
-	  }    
+wq->q[cq->q[cq_tail].tid].valid = 0;
+  #endif
+  call_magic_2_64(cq_tail, WQENTRYDONE, op_count);
+  
+//  lbuff_slot = (uint8_t*)wq->q[cq->q[cq_tail].tid].buf_addr;
+  //  fprintf(stdout,"Reading local buffer. Value: %"PRIu8"\n", *lbuff_slot);
+  cq->tail = cq->tail + 1;
+  if (cq->tail >= MAX_NUM_WQ) {
+cq->tail = 0;
+cq->SR ^= 1;
+  }    
 /////////////////////
     op_count++;
   }

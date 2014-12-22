@@ -25,7 +25,7 @@ int main(int argc, char **argv)
     uint64_t ctx_size = atoi(argv[2]);
     uint64_t buf_size = atoi(argv[3]);
 
-    uint64_t *lbuff, *ctx;
+    uint8_t *lbuff, *ctx;
     uint64_t lbuff_slot;
     uint64_t ctx_offset;
 
@@ -36,7 +36,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    kal_reg_lbuff(0, &lbuff, buf_size*sizeof(uint8_t) / PAGE_SIZE);
+    uint32_t num_pages =  buf_size * sizeof(uint8_t) / PAGE_SIZE;
+    fprintf(stdout, "Local buffer was allocated by address %"PRIu64", number of pages is %d\n", lbuff, num_pages);
+    kal_reg_lbuff(0, &lbuff, num_pages);
+    fprintf(stdout, "Local buffer was registered.\n");
     /*
     retcode = mlock(lbuff, buf_size*sizeof(uint8_t));
     if (retcode != 0) fprintf(stdout, "Local buffer mlock returned %d (buffer size = %d bytes)\n", retcode, buf_size*sizeof(uint8_t));
@@ -58,6 +61,7 @@ int main(int argc, char **argv)
         return 1;
     }
     kal_reg_ctx(0, &ctx, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
+    fprintf(stdout, "Ctx buffer was registered.\n");
     /*
     retcode = mlock(ctx, ctx_size*sizeof(uint8_t));
     if (retcode != 0) fprintf(stdout, "Context buffer mlock returned %d\n", retcode);
@@ -75,7 +79,9 @@ int main(int argc, char **argv)
     //allocate queues
 
     kal_reg_wq(0, &wq);
+    fprintf(stdout, "WQ was registered.\n");
     kal_reg_cq(0, &cq);
+    fprintf(stdout, "CQ was registered.\n");
     /* ustiugov
     wq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (wq == NULL) {

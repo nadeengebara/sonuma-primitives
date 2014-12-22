@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <malloc.h>
+#include <assert.h>
 
 #include "RMCdefines.h"
 #include "magic_iface.h"
@@ -93,7 +94,7 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
         fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
     }
-    retcode = mlock(*wq, sizeof(rmc_wq_t));
+    retcode = mlock(wq, sizeof(rmc_wq_t));
     if (retcode != 0) fprintf(stdout, "WQueue mlock returned %d\n", retcode);
 
     //setup work queue
@@ -157,21 +158,21 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
  * Warning: the func pins the memory to avoid swapping to
  *          the disk (only for Flexus); allocation is done within an app
  */
-int kal_reg_lbuff(int fd, uint64_t **buff_ptr, uint32_t num_pages) {
-    uint64_t *buff = *buff_ptr;
+int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
+    assert(buff_ptr != NULL);
+    uint8_t *buff = *buff_ptr;
 #ifdef FLEXUS
     int i, retcode;
-    int buff_size = num_pages * PAGE_SIZE;
+    uint64_t buff_size = num_pages * PAGE_SIZE;
     // buffers allocation is done by app
-    assert(buff != NULL);
-    retcode = mlock(buff, buff_size * sizeof(char));
-    if (retcode != 0) fprintf(stdout, "Local buffer mlock returned %d (buffer size = %d bytes)\n", retcode, PAGE_SIZE);
+    retcode = mlock(buff, buff_size * sizeof(uint8_t));
+    if (retcode != 0) fprintf(stdout, "Local buffer %"PRIu64" mlock returned %d (buffer size = %d bytes)\n", *buff_ptr, retcode, buff_size);
 
     uint32_t counter = 0;
     //initialize the local buffer
-    for(i=0; i<(buff_size*sizeof(char)); i++) {
+    for(i=0; i<(buff_size*sizeof(uint8_t)); i++) {
         buff[i] = 0;
-        counter = i*sizeof(char)/PAGE_SIZE;
+        counter = i*sizeof(uint8_t)/PAGE_SIZE;
         call_magic_2_64((uint64_t)&(buff[i] ), BUFFER, counter);
     }
     call_magic_2_64(42, BUFFER_SIZE, buff_size); // register local buffer
@@ -196,14 +197,14 @@ int kal_reg_lbuff(int fd, uint64_t **buff_ptr, uint32_t num_pages) {
  * Warning: the func pins the memory to avoid swapping to
  *          the disk (only for Flexus); allocation is done within an app
  */
-int kal_reg_ctx(int fd, uint64_t **ctx_ptr, uint32_t num_pages) {
-    uint64_t *ctx = *ctx_ptr;
+int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
+    assert(ctx_ptr != NULL);
+    uint8_t *ctx = *ctx_ptr;
 #ifdef FLEXUS
     int i, retcode, counter;
     int ctx_size = num_pages * PAGE_SIZE;
     // buffers allocation is done by app
-    assert(ctx != NULL);
-    retcode = mlock(ctx, ctx_size*sizeof(char));
+    retcode = mlock(ctx, ctx_size*sizeof(uint8_t));
     if (retcode != 0) fprintf(stdout, "Context buffer mlock returned %d\n", retcode);
 
     counter = 0;
@@ -272,6 +273,7 @@ void rmc_rread_async(rmc_wq_t *wq, char *lbuff_slot, int snid, uint32_t ctx_id, 
         // wait for WQ head to be ready
     }
     create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, (uint64_t)lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+    op_count_issued++;
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 
     wq->head =  wq->head + 1;

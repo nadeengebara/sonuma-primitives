@@ -70,7 +70,7 @@ int main(int argc, char **argv)
     //}
     //allocate queues
 
-    wq = memalign(PAGE_SIZE, PAGESIZE);
+    wq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (wq == NULL) {
         fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
@@ -78,7 +78,7 @@ int main(int argc, char **argv)
     retcode = mlock(wq, PAGE_SIZE);
     if (retcode != 0) fprintf(stdout, "WQueue mlock returned %d\n", retcode);
 
-    cq = memalign(PAGE_SIZE, PAGESIZE);
+    cq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (cq == NULL) {
         fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
