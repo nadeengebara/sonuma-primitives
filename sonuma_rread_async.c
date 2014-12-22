@@ -1,9 +1,4 @@
 #define __STDC_FORMAT_MACROS
-#include <inttypes.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <math.h>
 #include "libsonuma/sonuma.h"
 
 #define ITERS 100000
@@ -11,7 +6,7 @@
 rmc_wq_t *wq;
 rmc_cq_t *cq;
 
-void handler(uint8_t tid, uint8_t head, void *owner) {
+void handler(uint8_t tid, wq_entry_t head, void *owner) {
     // do nothing
 }
 
@@ -30,7 +25,7 @@ int main(int argc, char **argv)
     uint64_t ctx_size = atoi(argv[2]);
     uint64_t buf_size = atoi(argv[3]);
 
-    uint8_t *lbuff, *ctx;
+    uint64_t *lbuff, *ctx;
     uint64_t lbuff_slot;
     uint64_t ctx_offset;
 
@@ -141,9 +136,9 @@ int main(int argc, char **argv)
 
     while(op_count_completed < num_iter) {
         rmc_check_cq(wq, cq, &handler, NULL);
-        lbuff_slot = op_count_issued;	//(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
+        lbuff_slot = op_count_issued;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
         ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
-        rmc_rread_async(wq, lbuff_slot, (char *)lbuff_slot, snid, 0, ctx_offset, 42);
+        rmc_rread_async(wq, (char *)lbuff_slot, snid, 0, ctx_offset, 42);
         op_count_issued++;
     }
 /*
@@ -177,7 +172,7 @@ int main(int argc, char **argv)
 #endif
 
     //schedule
-    lbuff_slot = op_count_issued;	//(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
+    lbuff_slot = op_count_issued;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
     ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
     //fprintf(stdout,"buf offset = %"PRIu64"\n", ctx_offset);
     wq_head = wq->head;

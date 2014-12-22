@@ -1,6 +1,13 @@
 #ifndef H_SONUMA
 #define H_SONUMA
 
+#include <inttypes.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <math.h>
+#include <malloc.h>
+
 #include "RMCdefines.h"
 #include "magic_iface.h"
 #include "son_asm.h"
@@ -80,8 +87,8 @@ inline int kal_open(char *kal_name) {
  */
 int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     int i, retcode;
+    *wq_ptr = memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     rmc_wq_t *wq = *wq_ptr;
-    wq = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     if (wq == NULL) {
         fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
@@ -116,9 +123,9 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
  */
 int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     int i, retcode;
-    rmc_cq_t *cq = *cq_ptr;
     //  *cq = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
-    cq = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
+    *cq_ptr = memalign(PAGE_SIZE, sizeof(rmc_cq_t));
+    rmc_cq_t *cq = *cq_ptr;
     if (cq == NULL) {
         fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
@@ -150,8 +157,8 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
  * Warning: the func pins the memory to avoid swapping to
  *          the disk (only for Flexus); allocation is done within an app
  */
-int kal_reg_lbuff(int fd, char **buff_ptr, uint32_t num_pages) {
-    char *buff = *buff_ptr;
+int kal_reg_lbuff(int fd, uint64_t **buff_ptr, uint32_t num_pages) {
+    uint64_t *buff = *buff_ptr;
 #ifdef FLEXUS
     int i, retcode;
     int buff_size = num_pages * PAGE_SIZE;
@@ -189,8 +196,8 @@ int kal_reg_lbuff(int fd, char **buff_ptr, uint32_t num_pages) {
  * Warning: the func pins the memory to avoid swapping to
  *          the disk (only for Flexus); allocation is done within an app
  */
-int kal_reg_ctx(int fd, volatile char **ctx_ptr, uint32_t num_pages) {
-    char *ctx = *ctx_ptr;
+int kal_reg_ctx(int fd, uint64_t **ctx_ptr, uint32_t num_pages) {
+    uint64_t *ctx = *ctx_ptr;
 #ifdef FLEXUS
     int i, retcode, counter;
     int ctx_size = num_pages * PAGE_SIZE;

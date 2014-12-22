@@ -49,7 +49,7 @@ int main(int argc, char **argv)
 
     //context buffer - exposed to remote nodes
 
-    //if (snid == 1) {	//WARNING: Only app that is given snid = 1 registers context
+    //if (snid == 1) {    //WARNING: Only app that is given snid = 1 registers context
     ctx = memalign(PAGE_SIZE, ctx_size*sizeof(uint8_t));
     if (ctx == NULL) {
         fprintf(stdout, "Context buffer could not be allocated. Memalign returned %"PRIu64"\n", 0);
@@ -153,7 +153,7 @@ int main(int argc, char **argv)
 #endif
 
     //schedule
-    lbuff_slot = op_count_issued;	//(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
+    lbuff_slot = op_count_issued;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
     ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
     //fprintf(stdout,"buf offset = %"PRIu64"\n", ctx_offset);
     wq_head = wq->head;
