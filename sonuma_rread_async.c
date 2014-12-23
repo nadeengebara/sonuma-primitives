@@ -144,7 +144,7 @@ int main(int argc, char **argv)
         rmc_check_cq(wq, cq, &handler, NULL);
         lbuff_slot = op_count_issued;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
         ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
-        rmc_rread_async(wq, (char *)lbuff_slot, snid, 0, ctx_offset, 42);
+        rmc_rread_async(wq, lbuff_slot, snid, 0, ctx_offset, 42);
         op_count_issued++;
     }
 /*
@@ -157,7 +157,7 @@ int main(int argc, char **argv)
         do {
             while (cq->q[cq_tail].SR == cq->SR) {
                 tid = cq->q[cq_tail].tid;
-#ifdef version4_1
+#ifdef version2_1
                 wq->q[tid].valid = 0;
 #endif
                 //do whatever is needed with tid here
@@ -171,7 +171,7 @@ int main(int argc, char **argv)
                 call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
                 cq_tail = cq->tail;
             }
-#ifdef version4_1
+#ifdef version2_1
         } while (wq->q[wq_head].valid);
 #else
     } while (wq->SR != cq->SR);

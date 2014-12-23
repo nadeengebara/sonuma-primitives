@@ -266,13 +266,13 @@ void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owne
     }
 }
 
-void rmc_rread_async(rmc_wq_t *wq, char *lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
     uint8_t wq_head = wq->head;
 
     while (wq->q[wq_head].valid) {
         // wait for WQ head to be ready
     }
-    create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, (uint64_t)lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+    create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
     op_count_issued++;
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 

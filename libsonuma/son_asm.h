@@ -11,7 +11,7 @@
 //
 //#include "RMCdefines.h"
 
-#ifdef version4_1
+#ifdef version2_1
 static inline __attribute__ ((always_inline))
     void create_wq_entry(uint8_t op, uint8_t SR, uint8_t cid, uint16_t nid,
             uint64_t buf_addr, uint64_t offset, uint64_t length,
@@ -117,5 +117,5 @@ static inline __attribute__ ((always_inline))
             : "%l0", "%l1", "%l2", "%l3", "%l4", "%l5", "%l6", "%l7", "memory" /*clobbered registers*/
                 );
     }
-#endif    //#ifdef version4_1
+#endif    //#ifdef version2_1
 #endif
