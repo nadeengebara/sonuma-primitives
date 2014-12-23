@@ -6,8 +6,8 @@
  * @authors daglis
  */
 
-#ifndef SON_ASM
-#define SON_ASM
+#ifndef H_SON_ASM
+#define H_SON_ASM
 //
 //#include "RMCdefines.h"
 
@@ -118,4 +118,4 @@ static inline __attribute__ ((always_inline))
                 );
     }
 #endif    //#ifdef version2_1
-#endif
+#endif /* H_SON_ASM */
