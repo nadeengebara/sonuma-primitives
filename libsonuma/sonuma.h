@@ -56,7 +56,10 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages);
  */
 int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages);
 
-void kal_signal_all_set();
+/**
+ * This func signals Flexus to interrupt fast simulation and start clock precise modelling.
+ */
+void flexus_signal_all_set();
 
 /**
  * This func checks completed requests in CQ.
@@ -64,8 +67,13 @@ void kal_signal_all_set();
 void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner);
 
 /**
- * This func adds a Remote Read request to WQ.
+ * This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ.
  */
 void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length);
+
+/**
+ * This func polls for a free entry in WQ and, then, adds a Remote Write request to WQ.
+ */
+void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length);
 
 #endif /* H_SONUMA */

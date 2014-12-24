@@ -74,7 +74,7 @@ inline int kal_open(char *kal_name) {
 
 int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     int i, retcode;
-    *wq_ptr = memalign(PAGE_SIZE, sizeof(rmc_wq_t));
+    *wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     rmc_wq_t *wq = *wq_ptr;
     if (wq == NULL) {
         fprintf(stdout, "Work Queue could not be allocated.\n");
@@ -105,8 +105,7 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
 
 int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     int i, retcode;
-    //  *cq = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
-    *cq_ptr = memalign(PAGE_SIZE, sizeof(rmc_cq_t));
+    *cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
     rmc_cq_t *cq = *cq_ptr;
     if (cq == NULL) {
         fprintf(stdout, "Completion Queue could not be allocated.\n");
@@ -205,7 +204,7 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     return 0;
 }
 
-void kal_signal_all_set() {
+void flexus_signal_all_set() {
     call_magic_2_64(1, ALL_SET, 1);
 }
 
@@ -241,6 +240,7 @@ void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_i
     while (wq->q[wq_head].valid) {
         // wait for WQ head to be ready
     }
+
     create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
     op_count_issued++;
     fprintf(stdout, "Added an entry to WQ %"PRIu64" time...\n", op_count_issued);
@@ -254,3 +254,22 @@ void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_i
     }
 }
 
+void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+    uint8_t wq_head = wq->head;
+
+    while (wq->q[wq_head].valid) {
+        // wait for WQ head to be ready
+    }
+
+    create_wq_entry(RMC_WRITE, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+    op_count_issued++;
+    fprintf(stdout, "Added an entry to WQ %"PRIu64" time...\n", op_count_issued);
+    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+
+    wq->head =  wq->head + 1;
+    // check if WQ reached its end
+    if (wq->head >= MAX_NUM_WQ) {
+        wq->head = 0;
+        wq->SR ^= 1;
+    }
+}
