@@ -26,7 +26,7 @@ typedef void (async_handler)(uint8_t tid, wq_entry_t head, void *owner);
  * VM infra only!!!
  * This func opens connection with kernel driver (KAL).
  */
-inline int kal_open(char *kal_name);
+int kal_open(char *kal_name);
 
 /**
  * This func registers WQ with KAL or Flexus.
