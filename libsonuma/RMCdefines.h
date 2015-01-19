@@ -75,10 +75,11 @@
 #define BLOCK_SIZE      64
 #define BBUFF_SIZE      16
 #define PL_SIZE         60 //payload size
-
+/* [ustiugov] Not needed now
 #define RW_THR      16//16384//4096//16 //16384//256 //8192 //256    //daglis TODO: Why is this only 16? (was 1K in the paper)
 #define RREAD       1
 #define RWRITE      0
+*/
 ///////////////////////////////////////////////////////////////////////
 
 #ifdef version2_1
