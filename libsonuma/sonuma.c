@@ -236,14 +236,15 @@ void flexus_signal_all_set() {
 #ifdef FLEXUS
     fprintf(stdout, "[sonuma] Call Flexus magic call (ALL_SET).\n");
     call_magic_2_64(1, ALL_SET, 1);
-#endif
+#else
     fprintf(stdout, "[sonuma] flexus_signal_all_set called in VM mode. Do nothing.\n");
     // otherwise do nothing
+#endif /* FLEXUS */
 }
 
 void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) {
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] rmc_check_cq called in Flexus mode.\n");
+    //fprintf(stdout, "[sonuma] rmc_check_cq called in Flexus mode.\n"); // temporary disabled
 #else
     fprintf(stdout, "[sonuma] rmc_check_cq called in VM mode.\n");
 #endif
