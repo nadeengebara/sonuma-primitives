@@ -57,6 +57,8 @@ return spin_cycles;
 
 // global variables for sonuma operation counters
 uint64_t op_count_issued = 0, op_count_completed = 0;
+// global variable to switch Flexus to timing mode only once
+int is_timing = 0;
 
 /////////////////////// IMPLEMENTATION //////////////////////////////
 int kal_open(char *kal_name) {
@@ -234,8 +236,13 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 
 void flexus_signal_all_set() {
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] Call Flexus magic call (ALL_SET).\n");
-    call_magic_2_64(1, ALL_SET, 1);
+    if (is_timing == 0) {
+        fprintf(stdout, "[sonuma] Call Flexus magic call (ALL_SET).\n");
+        call_magic_2_64(1, ALL_SET, 1);
+        is_timing = 1;
+    } else {
+        fprintf(stdout, "[sonuma] (ALL_SET) magic call won't be called more than once.\n");
+    }
 #else
     fprintf(stdout, "[sonuma] flexus_signal_all_set called in VM mode. Do nothing.\n");
     // otherwise do nothing
