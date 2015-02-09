@@ -94,7 +94,7 @@ void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_i
 /**
  * This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ and waits for its completion.
  */
-void rmc_rread_sync(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length);
+void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length);
 
 /**
  * This func polls for a free entry in WQ and, then, adds a Remote Write request to WQ.

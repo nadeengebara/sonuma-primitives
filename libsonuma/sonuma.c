@@ -1,6 +1,8 @@
 /**
  * soNUMA library functions implementation.
  *
+ * ustiugov: tested with flexus (solaris) but still incompatible with Linux
+ *
  * Copyright (C) EPFL. All rights reserved.
  * @authors daglis, novakovic, ustiugov
  */
@@ -77,6 +79,7 @@ int kal_open(char *kal_name) {
 
 int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     int i, retcode;
+    // ustiugov: WARNING: due to some Flexus caveats we need a whole page
     //*wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     *wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
     rmc_wq_t *wq = *wq_ptr;
@@ -116,6 +119,7 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
 
 int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     int i, retcode;
+    // ustiugov: WARNING: due to some Flexus caveats we need a whole page
     //*cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
     *cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
     rmc_cq_t *cq = *cq_ptr;
@@ -318,6 +322,49 @@ void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_i
         wq->head = 0;
         wq->SR ^= 1;
     }
+}
+
+void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+#ifdef FLEXUS
+    DLogPerf("[sonuma] rmc_rread_sync called in Flexus mode.");
+#else
+    DLogPerf("[sonuma] rmc_rread_sync called in VM mode.");
+#endif
+    uint8_t wq_head = wq->head;
+    uint8_t cq_tail = cq->tail;
+
+    call_magic_2_64(wq_head, NEWWQENTRY_START, op_count_issued);
+    DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
+    create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+    op_count_issued++;
+    // for stats only
+    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+
+    wq->head =  wq->head + 1;
+    // check if WQ reached its end
+    if (wq->head >= MAX_NUM_WQ) {
+        wq->head = 0;
+        wq->SR ^= 1;
+    }
+
+    cq_tail = cq->tail;
+
+    // wait for a completion of the entry
+    while(cq->q[cq_tail].SR != cq->SR) {
+    }
+
+    // mark the entry as invalid, i.e. completed
+    wq->q[cq->q[cq_tail].tid].valid = 0;
+    op_count_completed++;
+    call_magic_2_64(cq_tail, WQENTRYDONE, op_count_completed);
+    cq->tail = cq->tail + 1;
+
+    // check if WQ reached its end
+    if (cq->tail >= MAX_NUM_WQ) {
+        cq->tail = 0;
+        cq->SR ^= 1;
+    }    
+
 }
 
 void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {

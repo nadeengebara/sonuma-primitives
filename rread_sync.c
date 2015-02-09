@@ -9,9 +9,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
+#include <sys/mman.h>
+#include "libsonuma/sonuma.h"
 #include "magic_iface.h"
-#include "libsonuma/magic_iface.h"
-#include "libsonuma/son_asm.h"
 
 #define ITERS 100000
 
@@ -79,7 +79,7 @@ int main(int argc, char **argv)
 
     //allocate queues
     //wq = memalign(PAGE_SIZE, sizeof(rmc_wq_t));
-    wq = memalign(PAGE_SIZE, PAGESIZE);//Should allocate full page
+    wq = memalign(PAGE_SIZE, PAGE_SIZE);//Should allocate full page
     if (wq == NULL) {
         fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
     if (retcode != 0)  fprintf(stdout, "WQueue mlock returned %d\n", retcode);
 
     //cq = memalign(PAGE_SIZE, sizeof(rmc_cq_t));//Should allocate full page
-    cq = memalign(PAGE_SIZE, PAGESIZE);
+    cq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (cq == NULL) {
         fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
         return 1;
