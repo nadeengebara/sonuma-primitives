@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
+#include <assert.h>
+#include <sys/mman.h>
 #include "libsonuma/sonuma.h"
 
 #define ITERS 100000
@@ -11,9 +13,12 @@
 rmc_wq_t *wq;
 rmc_cq_t *cq;
 
+uint64_t op_count_issued;
+uint64_t op_count_completed;
+
 int main(int argc, char **argv)
 {
-    uint64_t op_count_issued = 0, op_count_completed = 0;
+    op_count_issued = 0, op_count_completed = 0;
     int i, j, retcode;
     uint8_t tid;
 

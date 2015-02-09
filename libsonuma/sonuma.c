@@ -55,16 +55,13 @@ return spin_cycles;
 /////////////////////// END OF LEGACY ///////////////////////////////
 
 
-// global variables for sonuma operation counters
-uint64_t op_count_issued = 0, op_count_completed = 0;
-
 /////////////////////// IMPLEMENTATION //////////////////////////////
 int kal_open(char *kal_name) {
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] kal_open called in FLEXUS mode. Do nothing.\n");
+    DLog("[sonuma] kal_open called in FLEXUS mode. Do nothing.");
     return 0; // not used with Flexus
 #else
-    fprintf(stdout, "[sonuma] kal_open called in VM mode.\n");
+    DLog("[sonuma] kal_open called in VM mode.");
     sdgfg
     int fd;
 
@@ -77,17 +74,19 @@ int kal_open(char *kal_name) {
 
 int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     int i, retcode;
-    *wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
+    //*wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
+    *wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
     rmc_wq_t *wq = *wq_ptr;
     if (wq == NULL) {
-        fprintf(stdout, "[sonuma] Work Queue could not be allocated.\n");
+        DLog("[sonuma] Work Queue could not be allocated.");
         return -1;
     }
-    retcode = mlock((void *)wq, sizeof(rmc_wq_t));
+    //retcode = mlock((void *)wq, sizeof(rmc_wq_t));
+    retcode = mlock((void *)wq, PAGE_SIZE);
     if (retcode != 0) {
-        fprintf(stdout, "[sonuma] WQueue mlock returned %d\n", retcode);
+        DLog("[sonuma] WQueue mlock returned %d", retcode);
     } else {
-        fprintf(stdout, "[sonuma] WQ was pinned successfully.\n");
+        DLog("[sonuma] WQ was pinned successfully.");
     }
 
     //setup work queue
@@ -99,10 +98,10 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     }
 
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] Call Flexus magic call (WQUEUE).\n");
+    DLog("[sonuma] Call Flexus magic call (WQUEUE).");
     call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
 #else
-    fprintf(stdout, "[sonuma] kal_reg_wq called in VM mode.\n");
+    DLog("[sonuma] kal_reg_wq called in VM mode.");
     posix_memalign((void **)wq, PAGE_SIZE, sizeof(rmc_wq_t));
     if(ioctl(fd, KAL_REG_WQ, (void *)wq) == -1) {
         return -1;
@@ -114,17 +113,19 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
 
 int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     int i, retcode;
-    *cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
+    //*cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
+    *cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
     rmc_cq_t *cq = *cq_ptr;
     if (cq == NULL) {
-        fprintf(stdout, "[sonuma] Completion Queue could not be allocated.\n");
+        DLog("[sonuma] Completion Queue could not be allocated.");
         return -1;
     }
-    retcode = mlock((void *)cq, sizeof(rmc_cq_t));
+    //retcode = mlock((void *)cq, sizeof(rmc_cq_t));
+    retcode = mlock((void *)cq, PAGE_SIZE);
     if (retcode != 0) {
-        fprintf(stdout, "[sonuma] CQueue mlock returned %d\n", retcode);
+        DLog("[sonuma] CQueue mlock returned %d", retcode);
     } else {
-        fprintf(stdout, "[sonuma] CQ was pinned successfully.\n");
+        DLog("[sonuma] CQ was pinned successfully.");
     }
 
     cq->tail = 0;
@@ -134,10 +135,10 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
         cq->q[i].SR = 0;
     }
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] Call Flexus magic call (CQUEUE).\n");
+    DLog("[sonuma] Call Flexus magic call (CQUEUE).");
     call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
 #else
-    fprintf(stdout, "[sonuma] kal_reg_cq called in VM mode.\n");
+    DLog("[sonuma] kal_reg_cq called in VM mode.");
     posix_memalign((void **)cq, PAGE_SIZE, sizeof(rmc_cq_t));
     //register completion queue
     if (ioctl(fd, KAL_REG_CQ, (void *)cq) == -1) {
@@ -157,9 +158,9 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
     // buffers allocation is done by app
     retcode = mlock((void *)buff, buff_size * sizeof(uint8_t));
     if (retcode != 0) {
-        fprintf(stdout, "[sonuma] Local buffer %p mlock returned %d (buffer size = %"PRIu64" bytes)\n", *buff_ptr, retcode, buff_size);
+        DLog("[sonuma] Local buffer %p mlock returned %d (buffer size = %"PRIu64" bytes)", *buff_ptr, retcode, buff_size);
     } else {
-        fprintf(stdout, "[sonuma] Local buffer was pinned successfully.\n");
+        DLog("[sonuma] Local buffer was pinned successfully.");
     }
 
     uint32_t counter = 0;
@@ -170,10 +171,10 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
         call_magic_2_64((uint64_t)&(buff[i] ), BUFFER, counter);
     }
     
-    fprintf(stdout, "[sonuma] Call Flexus magic call (BUFFER_SIZE).\n");
+    DLog("[sonuma] Call Flexus magic call (BUFFER_SIZE).");
     call_magic_2_64(42, BUFFER_SIZE, buff_size); // register local buffer
 #else
-    fprintf(stdout, "[sonuma] kal_reg_lbuff called in VM mode.\n");
+    DLog("[sonuma] kal_reg_lbuff called in VM mode.");
     //tell the KAL how long is the buffer
     ((int *)buff)[0] = num_pages;
 
@@ -198,9 +199,9 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     // buffers allocation is done by app
     retcode = mlock((void *)ctx, ctx_size*sizeof(uint8_t));
     if (retcode != 0) {
-        fprintf(stdout, "[sonuma] Context buffer mlock returned %d\n", retcode);
+        DLog("[sonuma] Context buffer mlock returned %d", retcode);
     } else {
-        fprintf(stdout, "[sonuma] Context buffer was pinned successfully.\n");
+        DLog("[sonuma] Context buffer was pinned successfully.");
     }
 
     counter = 0;
@@ -212,10 +213,10 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
         counter++;
         call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, counter);
     }
-    fprintf(stdout, "[sonuma] Call Flexus magic call (CONTEXT_SIZE).\n");
+    DLog("[sonuma] Call Flexus magic call (CONTEXT_SIZE).");
     call_magic_2_64(42, CONTEXT_SIZE, ctx_size); // register ctx
 #else
-    fprintf(stdout, "[sonuma] kal_reg_ctx called in VM mode.\n");
+    DLog("[sonuma] kal_reg_ctx called in VM mode.");
     int tmp = ((int *)ctx)[0];
 
     ((int *)ctx)[0] = num_pages;
@@ -234,25 +235,29 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 
 void flexus_signal_all_set() {
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] Call Flexus magic call (ALL_SET).\n");
+    // global variables for sonuma operation counters
+    op_count_issued = 0;
+    op_count_completed = 0;
+
+    DLog("[sonuma] Call Flexus magic call (ALL_SET).");
     call_magic_2_64(1, ALL_SET, 1);
 #else
-    fprintf(stdout, "[sonuma] flexus_signal_all_set called in VM mode. Do nothing.\n");
+    DLog("[sonuma] flexus_signal_all_set called in VM mode. Do nothing.");
     // otherwise do nothing
 #endif /* FLEXUS */
 }
 
 void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) {
 #ifdef FLEXUS
-    //fprintf(stdout, "[sonuma] rmc_check_cq called in Flexus mode.\n"); // temporary disabled
+    //DLogPerf("[sonuma] rmc_check_cq called in Flexus mode."); // temporary disabled
 #else
-    fprintf(stdout, "[sonuma] rmc_check_cq called in VM mode.\n");
+    DLogPerf("[sonuma] rmc_check_cq called in VM mode.");
 #endif
     uint8_t tid;
     uint8_t wq_head = wq->head;
     uint8_t cq_tail = cq->tail;
 
-    if (cq->q[cq_tail].SR == cq->SR) {
+    while (cq->q[cq_tail].SR == cq->SR) {
         tid = cq->q[cq_tail].tid;
         wq->q[tid].valid = 0; // invalidate corresponding entry in WQ
         // TODO: counting operations executed properly
@@ -268,10 +273,10 @@ void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owne
 
 #ifdef FLEXUS
         // for stats only
-        fprintf(stdout, "[sonuma] Call Flexus magic call (WQENTRYDONE).\n");
+        DLogPerf("[sonuma] Call Flexus magic call (WQENTRYDONE).");
         call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
 #endif
-        fprintf(stdout, "Checking CQ %"PRIu64" time...\n", op_count_completed);
+        DLogPerf("Checking CQ %"PRIu64" time...", op_count_completed);
         cq_tail = cq->tail;
         handler(tid, wq->q[wq_head], owner);
     }
@@ -279,9 +284,9 @@ void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owne
 
 void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] rmc_rread_async called in Flexus mode.\n");
+    DLogPerf("[sonuma] rmc_rread_async called in Flexus mode.");
 #else
-    fprintf(stdout, "[sonuma] rmc_rread_async called in VM mode.\n");
+    DLogPerf("[sonuma] rmc_rread_async called in VM mode.");
 #endif
     uint8_t wq_head = wq->head;
 
@@ -291,11 +296,11 @@ void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_i
 
     create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
     op_count_issued++;
-    fprintf(stdout, "Added an entry to WQ %"PRIu64" time...\n", op_count_issued);
+    DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
 
 #ifdef FLEXUS
     // for stats only
-    fprintf(stdout, "[sonuma] Call Flexus magic call (NEWWQENTRY).\n");
+    DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 #endif
 
@@ -309,9 +314,9 @@ void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_i
 
 void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifdef FLEXUS
-    fprintf(stdout, "[sonuma] rmc_rwrite called in Flexus mode.\n");
+    DLogPerf("[sonuma] rmc_rwrite called in Flexus mode.");
 #else
-    fprintf(stdout, "[sonuma] rmc_rwrite called in VM mode.\n");
+    DLogPerf("[sonuma] rmc_rwrite called in VM mode.");
 #endif
     uint8_t wq_head = wq->head;
 
@@ -321,11 +326,11 @@ void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, ui
 
     create_wq_entry(RMC_WRITE, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
     op_count_issued++;
-    fprintf(stdout, "Added an entry to WQ %"PRIu64" time...\n", op_count_issued);
+    DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
 
 #ifdef FLEXUS
     // for stats only
-    fprintf(stdout, "[sonuma] Call Flexus magic call (NEWWQENTRY).\n");
+    DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 #endif
 

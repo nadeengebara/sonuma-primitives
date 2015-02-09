@@ -18,6 +18,26 @@
 #include "magic_iface.h"
 #include "son_asm.h"
 
+#define DEBUG
+// ustiugov: WARNING!!! DEBUG_PERF enables I/O in performance regions (it uses DLogPerf)! Do not enable during experiments!
+//#define DEBUG_PERF
+
+#ifdef DEBUG
+#define DLog(M, ...) fprintf(stdout, "DEBUG %s:%d: " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#else
+#define DLog(M, ...)
+#endif
+
+#ifdef DEBUG_PERF
+#define DLogPerf(M, ...) fprintf(stdout, "DEBUG %s:%d: " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#else
+#define DLogPerf(M, ...)
+#endif
+
+// global variables for sonuma operation counters
+extern uint64_t op_count_issued;
+extern uint64_t op_count_completed;
+
 #define FLEXUS // ustiugov: comment out to get soNUMA for linux
 
 typedef void (async_handler)(uint8_t tid, wq_entry_t head, void *owner);
@@ -70,6 +90,11 @@ void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owne
  * This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ.
  */
 void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length);
+
+/**
+ * This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ and waits for its completion.
+ */
+void rmc_rread_sync(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length);
 
 /**
  * This func polls for a free entry in WQ and, then, adds a Remote Write request to WQ.

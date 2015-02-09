@@ -6,14 +6,15 @@
 rmc_wq_t *wq;
 rmc_cq_t *cq;
 
+uint64_t op_count_issued;
+uint64_t op_count_completed;
+
 void handler(uint8_t tid, wq_entry_t head, void *owner) {
     // do nothing
 }
 
 int main(int argc, char **argv)
 {
-    uint64_t op_count_issued = 0, op_count_completed = 0;
-
     int num_iter = (int)ITERS;
     if (argc != 4) {
         fprintf(stdout,"Usage: ./uBench <target_nid> <context_size> <buffer_size>\n");
@@ -55,7 +56,7 @@ int main(int argc, char **argv)
     fprintf(stdout, "CQ was registered.\n");
 
     fprintf(stdout,"Init done! Will execute %d WQ operations - ASYNC!\n NOTE: This app is in FLEXI mode! (snid = %d)\n", num_iter, snid);
-    kal_signal_all_set();
+    flexus_signal_all_set();
 
     //uB kernel
     while(op_count_completed < num_iter) {
@@ -63,7 +64,6 @@ int main(int argc, char **argv)
         lbuff_slot = op_count_issued;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
         ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
         rmc_rread_async(wq, lbuff_slot, snid, 0, ctx_offset, 42);
-        op_count_issued++;
     }
 
 free(lbuff);
