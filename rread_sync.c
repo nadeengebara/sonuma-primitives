@@ -1,3 +1,7 @@
+/** 
+ * OBSOLETE! use sonuma_rread_sync.c instead
+ */
+
 //ALEX: This is a flexible sync rread microbenchmark. It slightly modifies the soNUMA protocol and assumes the simulator
 //knows we are running this flexible protocol version. Instead of context offset and buffer address, the app gives a
 //single offset number. The simulator decides what this means: depending on the operation size (64B, 128B, etc..) it

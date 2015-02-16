@@ -1,3 +1,8 @@
+/** 
+ * OBSOLETE! use sonuma_rread_async.c instead
+ */
+
+
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <stdlib.h>

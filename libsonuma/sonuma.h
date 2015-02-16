@@ -158,7 +158,10 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
 #endif
     uint8_t wq_head = wq->head;
 
+#ifdef FLEXUS
     create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+#endif
+
 #ifdef DEBUG_FLEXUS_STATS
     op_count_issued++;
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
@@ -189,7 +192,9 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
     op_count_issued++;
 #endif
 
+#ifdef FLEXUS
     create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+#endif
 
 #ifdef DEBUG_FLEXUS_STATS
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
