@@ -243,9 +243,11 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 void flexus_signal_all_set() {
 #ifdef FLEXUS
     if (is_timing == 0) {
+#ifdef DEBUG_FLEXUS_STATS
         // global variables for sonuma operation counters
         op_count_issued = 0;
         op_count_completed = 0;
+#endif
         
         DLog("[sonuma] Call Flexus magic call (ALL_SET).");
         call_magic_2_64(1, ALL_SET, 1);
@@ -259,140 +261,3 @@ void flexus_signal_all_set() {
 #endif /* FLEXUS */
 }
 
-void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) {
-#ifdef FLEXUS
-    //DLogPerf("[sonuma] rmc_check_cq called in Flexus mode."); // temporary disabled
-#else
-    DLogPerf("[sonuma] rmc_check_cq called in VM mode.");
-#endif
-    uint8_t tid;
-    uint8_t wq_head = wq->head;
-    uint8_t cq_tail = cq->tail;
-
-    while (cq->q[cq_tail].SR == cq->SR) {
-        tid = cq->q[cq_tail].tid;
-        wq->q[tid].valid = 0; // invalidate corresponding entry in WQ
-        // TODO: counting operations executed properly
-        op_count_completed++;
-
-        cq->tail = cq->tail + 1;
-
-        // check if WQ reached its end
-        if (cq->tail >= MAX_NUM_WQ) {
-            cq->tail = 0;
-            cq->SR ^= 1;
-        }
-
-#ifdef FLEXUS
-        // for stats only
-        DLogPerf("[sonuma] Call Flexus magic call (WQENTRYDONE).");
-        call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
-#endif
-        DLogPerf("Checking CQ %"PRIu64" time...", op_count_completed);
-        cq_tail = cq->tail;
-        handler(tid, wq->q[wq_head], owner);
-    }
-}
-
-void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
-#ifdef FLEXUS
-    DLogPerf("[sonuma] rmc_rread_async called in Flexus mode.");
-#else
-    DLogPerf("[sonuma] rmc_rread_async called in VM mode.");
-#endif
-    uint8_t wq_head = wq->head;
-
-    while (wq->q[wq_head].valid) {
-        // wait for WQ head to be ready
-    }
-
-    create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
-    op_count_issued++;
-    DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
-
-#ifdef FLEXUS
-    // for stats only
-    DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
-    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
-#endif
-
-    wq->head =  wq->head + 1;
-    // check if WQ reached its end
-    if (wq->head >= MAX_NUM_WQ) {
-        wq->head = 0;
-        wq->SR ^= 1;
-    }
-}
-
-void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
-#ifdef FLEXUS
-    DLogPerf("[sonuma] rmc_rread_sync called in Flexus mode.");
-#else
-    DLogPerf("[sonuma] rmc_rread_sync called in VM mode.");
-#endif
-    uint8_t wq_head = wq->head;
-    uint8_t cq_tail = cq->tail;
-
-    call_magic_2_64(wq_head, NEWWQENTRY_START, op_count_issued);
-    DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
-    create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
-    op_count_issued++;
-    // for stats only
-    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
-
-    wq->head =  wq->head + 1;
-    // check if WQ reached its end
-    if (wq->head >= MAX_NUM_WQ) {
-        wq->head = 0;
-        wq->SR ^= 1;
-    }
-
-    cq_tail = cq->tail;
-
-    // wait for a completion of the entry
-    while(cq->q[cq_tail].SR != cq->SR) {
-    }
-
-    // mark the entry as invalid, i.e. completed
-    wq->q[cq->q[cq_tail].tid].valid = 0;
-    op_count_completed++;
-    call_magic_2_64(cq_tail, WQENTRYDONE, op_count_completed);
-    cq->tail = cq->tail + 1;
-
-    // check if WQ reached its end
-    if (cq->tail >= MAX_NUM_WQ) {
-        cq->tail = 0;
-        cq->SR ^= 1;
-    }    
-
-}
-
-void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
-#ifdef FLEXUS
-    DLogPerf("[sonuma] rmc_rwrite called in Flexus mode.");
-#else
-    DLogPerf("[sonuma] rmc_rwrite called in VM mode.");
-#endif
-    uint8_t wq_head = wq->head;
-
-    while (wq->q[wq_head].valid) {
-        // wait for WQ head to be ready
-    }
-
-    create_wq_entry(RMC_WRITE, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
-    op_count_issued++;
-    DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
-
-#ifdef FLEXUS
-    // for stats only
-    DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
-    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
-#endif
-
-    wq->head =  wq->head + 1;
-    // check if WQ reached its end
-    if (wq->head >= MAX_NUM_WQ) {
-        wq->head = 0;
-        wq->SR ^= 1;
-    }
-}
