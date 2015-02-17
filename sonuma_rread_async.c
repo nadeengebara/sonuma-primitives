@@ -3,7 +3,7 @@
 
 #define ITERS 100000
 // flexus runs in Flexi mode (request size is Flexus' dynamic parameter)
-#define OBJECT_STUB 0
+#define CONTEXT_STUB 0
 #define LENGTH_STUB 64
 
 rmc_wq_t *wq;
@@ -14,10 +14,6 @@ rmc_cq_t *cq;
 uint64_t op_count_issued;
 uint64_t op_count_completed;
 #endif
-
-// flexus runs in Flexi mode (request size is Flexus' dynamic parameter)
-#define OBJECT_STUB 0
-#define LENGTH_STUB 0
 
 void handler(uint8_t tid, wq_entry_t head, void *owner) {
     // do nothing
@@ -77,7 +73,7 @@ int main(int argc, char **argv)
         //
         lbuff_slot = i;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
         ctx_offset = i + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
-        rmc_rread_async(wq, lbuff_slot, snid, OBJECT_STUB, ctx_offset, LENGTH_STUB);
+        rmc_rread_async(wq, lbuff_slot, snid, CONTEXT_STUB, ctx_offset, LENGTH_STUB);
     }
 
 free(lbuff);

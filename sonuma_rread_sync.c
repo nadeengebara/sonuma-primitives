@@ -3,7 +3,7 @@
 
 #define ITERS 100000
 // flexus runs in Flexi mode (request size is Flexus' dynamic parameter)
-#define OBJECT_STUB 0
+#define CONTEXT_STUB 0
 #define LENGTH_STUB 64
 
 rmc_wq_t *wq;
@@ -61,7 +61,7 @@ int main(int argc, char **argv)
     kal_reg_cq(0, &cq);
     fprintf(stdout, "CQ was registered.\n");
 
-    fprintf(stdout,"Init done! Will execute %d WQ operations - ASYNC!\n NOTE: This app is in FLEXI mode! (snid = %d)\n", num_iter, snid);
+    fprintf(stdout,"Init done! Will execute %d WQ operations - SYNC!\n NOTE: This app is in FLEXI mode! (snid = %d)\n", num_iter, snid);
     flexus_signal_all_set();
 
     //uB kernel
@@ -72,7 +72,7 @@ int main(int argc, char **argv)
         //
         lbuff_slot = i;//(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
         ctx_offset = i;// + op_count_issued * SLOT_SIZE) % ctx_size;
-        rmc_rread_sync(wq, cq, lbuff_slot, snid, OBJECT_STUB, ctx_offset, LENGTH_STUB);
+        rmc_rread_sync(wq, cq, lbuff_slot, snid, CONTEXT_STUB, ctx_offset, LENGTH_STUB);
     }
 
 free(lbuff);
