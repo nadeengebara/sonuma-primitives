@@ -2,6 +2,7 @@
 #include "RMCdefines.h"
 
 #include <stdbool.h>
+#include <sys/ioctl.h>
 
 static bool rmc_active;
 static int fd;
@@ -33,6 +34,8 @@ int setup_pgas(void *pgas) {
     }
     
     printf("[soft_rmc] remote region successfully mapped\n");
+
+    return 0;
 }
 
 int destroy_pgas(void *pgas) {
@@ -98,6 +101,8 @@ void *core_rmc_fun(void *arg) {
     destroy_pgas(pgas);
 
     printf("[soft_rmc] RMC deactivated\n");
+    
+    return NULL;
 }
 
 void deactivate_rmc() {

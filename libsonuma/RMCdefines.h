@@ -97,8 +97,7 @@ typedef struct wq_entry{
     uint64_t offset : 40;
     uint64_t length : 24;
 } wq_entry_t;
-
-#else //VMs
+#else
 typedef struct wq_entry{
     //first double-word (8 bytes)
     uint8_t op;        //up to 64 soNUMA ops
@@ -112,7 +111,6 @@ typedef struct wq_entry{
     uint64_t length;
 } wq_entry_t;
 #endif
-
 #else
 //THIS IS NOT PORTABLE - USE OF EXPLICIT BITMASKS IS PROBABLY A BETTER IDEA
 typedef struct wq_entry{
@@ -131,25 +129,25 @@ typedef struct cq_entry{
     volatile uint8_t tid : 7;
 } cq_entry_t;
 
-#ifdef FLEXUS
 typedef struct rmc_wq {
     wq_entry_t q[MAX_NUM_WQ];
     uint8_t head;
     uint8_t SR : 1;    //sense reverse bit
 } rmc_wq_t;
-#else
-typedef struct rmc_wq {
-    wq_entry_t q[MAX_NUM_WQ];
-    uint8_t head;
-    uint8_t SR;    //sense reverse bit
-} rmc_wq_t;
-#endif
 
+#ifdef FLEXUS
 typedef struct rmc_cq {
     cq_entry_t q[MAX_NUM_WQ];
     uint8_t tail;
     uint8_t SR : 1;    //sense reverse bit
 } rmc_cq_t;
+#else
+typedef struct rmc_cq {
+    cq_entry_t q[MAX_NUM_WQ];
+    uint8_t tail;
+    uint8_t SR;    //sense reverse bit
+} rmc_cq_t;
+#endif
 
 typedef struct qp_info {
     rmc_wq_t *wq;

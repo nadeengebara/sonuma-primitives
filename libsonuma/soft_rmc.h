@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <string.h>
 
+void deactivate_rmc();
 void *core_rmc_fun(void *arg);
 
 #endif

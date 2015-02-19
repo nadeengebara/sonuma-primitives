@@ -10,6 +10,7 @@
 #include <malloc.h>
 #include <assert.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 
 #include "sonuma.h"
 
@@ -258,17 +259,24 @@ void flexus_signal_all_set() {
 #endif /* FLEXUS */
 }
 
-int rmc_init(rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem) {
-    qp_info_t qp_info;
-    pthread_t rmc_thread;
+int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem) {
+    qp_info_t * qp_info = (qp_info_t *)malloc(sizeof(qp_info_t));
     int ret;
 
-    qp_info.wq = wq;
-    qp_info.cq = cq;
-    qp_info.ctx_mem = ctx_mem;
+    qp_info->wq = wq;
+    qp_info->cq = cq;
+    qp_info->ctx_mem = ctx_mem;
+    qp_info->node_cnt = node_cnt;
+    qp_info->this_nid = this_nid;
 
+    printf("[sonuma] activating RMC..\n");
     return pthread_create(&rmc_thread, 
 			  NULL, 
 			  core_rmc_fun, 
-			  (void *)&qp_info);    
+			  (void *)qp_info);    
+}
+
+void rmc_deinit() {
+    deactivate_rmc();
+    pthread_join(rmc_thread, NULL);
 }
