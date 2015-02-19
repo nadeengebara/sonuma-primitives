@@ -67,7 +67,6 @@ int kal_open(char *kal_name) {
     return 0; // not used with Flexus
 #else
     DLog("[sonuma] kal_open called in VM mode.");
-    sdgfg
     int fd;
 
     if ((fd=open(kal_name, O_RDWR|O_SYNC)) < 0) {
@@ -108,10 +107,10 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_wq called in VM mode.");
-    posix_memalign((void **)wq, PAGE_SIZE, sizeof(rmc_wq_t));
-    if(ioctl(fd, KAL_REG_WQ, (void *)wq) == -1) {
-        return -1;
-    }
+    //posix_memalign((void **)wq, PAGE_SIZE, sizeof(rmc_wq_t));
+    //if(ioctl(fd, KAL_REG_WQ, (void *)wq) == -1) {
+    //  return -1;
+    //}
 #endif /* FLEXUS */
 
     return 0;
@@ -146,11 +145,11 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_cq called in VM mode.");
-    posix_memalign((void **)cq, PAGE_SIZE, sizeof(rmc_cq_t));
+    //posix_memalign((void **)cq, PAGE_SIZE, sizeof(rmc_cq_t));
     //register completion queue
-    if (ioctl(fd, KAL_REG_CQ, (void *)cq) == -1) {
-        return -1;
-    }
+    //if (ioctl(fd, KAL_REG_CQ, (void *)cq) == -1) {
+    //    return -1;
+    //}
 #endif /* FLEXUS */
 
     return 0;
@@ -243,11 +242,9 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 void flexus_signal_all_set() {
 #ifdef FLEXUS
     if (is_timing == 0) {
-#ifdef DEBUG_FLEXUS_STATS
         // global variables for sonuma operation counters
         op_count_issued = 0;
         op_count_completed = 0;
-#endif
         
         DLog("[sonuma] Call Flexus magic call (ALL_SET).");
         call_magic_2_64(1, ALL_SET, 1);
@@ -261,3 +258,17 @@ void flexus_signal_all_set() {
 #endif /* FLEXUS */
 }
 
+int rmc_init(rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem) {
+    qp_info_t qp_info;
+    pthread_t rmc_thread;
+    int ret;
+
+    qp_info.wq = wq;
+    qp_info.cq = cq;
+    qp_info.ctx_mem = ctx_mem;
+
+    return pthread_create(&rmc_thread, 
+			  NULL, 
+			  core_rmc_fun, 
+			  (void *)&qp_info);    
+}
