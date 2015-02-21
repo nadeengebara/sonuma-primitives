@@ -12,8 +12,9 @@
 //extern "C" {
 //#endif
 
-// TODO: cleanup obsolete functions
-
+// Note: The initial version of this file was taken from the LBA project.
+// Thus, only a subset of the following functions is actually used.
+ 
 static uint32_t global1;
 static uint32_t global2;
 

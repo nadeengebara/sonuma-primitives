@@ -17,10 +17,6 @@ uint64_t op_count_issued;
 uint64_t op_count_completed;
 #endif
 
-// flexus runs in Flexi mode (request size is Flexus' dynamic parameter)
-#define OBJECT_STUB 0
-#define LENGTH_STUB 0
-
 void handler(uint8_t tid, wq_entry_t head, void *owner) {
     // do nothing
 }
