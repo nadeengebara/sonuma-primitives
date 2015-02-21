@@ -9,7 +9,7 @@
 #define H_RMC_DEFINES
 
 //#define FLEXI_MODE  // do not use flexi mode unless for flexus ubenches
-//#define FLEXUS
+#define FLEXUS
 
 #define MAX_NUM_WQ      128
 #define DEFAULT_CTX_VAL 123

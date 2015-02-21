@@ -26,10 +26,6 @@
     #include "soft_rmc.h"
 #endif
 
-//#include "son_asm.h"
-
-//#define FLEXUS // ustiugov: comment out to get soNUMA for linux
-
 #define DEBUG
 // ustiugov: WARNING!!! DEBUG_PERF enables I/O in performance regions (it uses DLogPerf)!
 //           Do not enable during experiments!
@@ -195,14 +191,13 @@ inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, voi
 }
 
 inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
-#ifdef FLEXUS
-    DLogPerf("[sonuma] rmc_rread_async called in Flexus mode.");
-#else
+#ifndef FLEXUS
     DLogPerf("[sonuma] rmc_rread_async called in VM mode.");
 #endif
-    uint8_t wq_head = wq->head;
 
 #ifdef FLEXUS
+    DLogPerf("[sonuma] rmc_rread_async called in Flexus mode.");
+    uint8_t wq_head = wq->head;
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 
 #ifdef DEBUG_FLEXUS_STATS
