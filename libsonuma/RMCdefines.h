@@ -9,6 +9,7 @@
 #define H_RMC_DEFINES
 
 //#define FLEXI_MODE  // do not use flexi mode unless for flexus ubenches
+//#define FLEXUS
 
 #define MAX_NUM_WQ      128
 #define DEFAULT_CTX_VAL 123
@@ -82,6 +83,7 @@
 */
 ///////////////////////////////////////////////////////////////////////
 
+#ifdef FLEXUS
 typedef struct wq_entry{
     //first double-word (8 bytes)
     uint8_t op : 6;        //up to 64 soNUMA ops
@@ -94,6 +96,20 @@ typedef struct wq_entry{
     uint64_t offset : 40;
     uint64_t length : 24;
 } wq_entry_t;
+#else
+typedef struct wq_entry{
+    //first double-word (8 bytes)
+    uint8_t op;        //up to 64 soNUMA ops
+    volatile uint8_t SR;        //sense reverse bit
+    uint8_t valid;    //set with a new WQ entry, unset when entry completed. Required for pipelining async ops
+    uint64_t buf_addr;
+    uint8_t cid;
+    uint16_t nid;
+    //second double-word (8 bytes)
+    uint64_t offset;
+    uint64_t length;
+} wq_entry_t;
+#endif /* FLEXUS */
 
 typedef struct cq_entry{
     volatile uint8_t SR : 1;     //sense reverse bit
@@ -106,10 +122,26 @@ typedef struct rmc_wq {
     uint8_t SR : 1;    //sense reverse bit
 } rmc_wq_t;
 
+#ifdef FLEXUS
 typedef struct rmc_cq {
     cq_entry_t q[MAX_NUM_WQ];
     uint8_t tail;
     uint8_t SR : 1;    //sense reverse bit
 } rmc_cq_t;
+#else
+typedef struct rmc_cq {
+    cq_entry_t q[MAX_NUM_WQ];
+    uint8_t tail;
+    uint8_t SR;    //sense reverse bit
+} rmc_cq_t;
+#endif
+
+typedef struct qp_info {
+    rmc_wq_t *wq;
+    rmc_cq_t *cq;
+    uint8_t *ctx_mem;
+    int node_cnt;
+    int this_nid;
+} qp_info_t;
 
 #endif /* H_RMC_DEFINES */

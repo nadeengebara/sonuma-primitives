@@ -13,12 +13,22 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "RMCdefines.h"
-#include "magic_iface.h"
-#include "son_asm.h"
 
-#define FLEXUS // ustiugov: comment out to get soNUMA for linux
+#ifdef FLEXUS
+    #include "magic_iface.h"
+    #include "son_asm.h"
+#else
+    #include "soft_rmc.h"
+#endif
+
+//#include "son_asm.h"
+
+//#define FLEXUS // ustiugov: comment out to get soNUMA for linux
 
 #define DEBUG
 // ustiugov: WARNING!!! DEBUG_PERF enables I/O in performance regions (it uses DLogPerf)!
@@ -45,6 +55,8 @@
 extern uint64_t op_count_issued;
 extern uint64_t op_count_completed;
 #endif
+
+static pthread_t rmc_thread;
 
 typedef void (async_handler)(uint8_t tid, wq_entry_t head, void *owner);
 
@@ -86,6 +98,16 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages);
  * This func signals Flexus to interrupt fast simulation and start clock precise modelling.
  */
 void flexus_signal_all_set();
+
+/**
+ * This func initializes the Soft RMC.
+ */
+int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem);
+
+/**
+ * This func deinitialized the Soft RMC
+ */
+void rmc_deinit();
 
 /**
  * This func checks completed requests in CQ.
@@ -182,7 +204,6 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
 
 #ifdef FLEXUS
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
-#endif
 
 #ifdef DEBUG_FLEXUS_STATS
     op_count_issued++;
@@ -190,6 +211,21 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
     DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 #endif
+
+#else // Linux below
+    wq->q[wq_head].buf_addr = lbuff_slot;
+    wq->q[wq_head].cid = ctx_id;
+    wq->q[wq_head].offset = ctx_offset;
+    if(length < 64)
+	wq->q[wq_head].length = 64; //at least 64B
+    else
+	wq->q[wq_head].length = length; //specify the length of the transfer
+    wq->q[wq_head].op = 'r';
+    wq->q[wq_head].nid = snid;
+    //soNUMA v2.1
+    wq->q[wq_head].valid = 1;
+    wq->q[wq_head].SR = wq->SR;
+#endif /* FLEXUS */
 
     wq->head =  wq->head + 1;
     // check if WQ reached its end
@@ -208,6 +244,8 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
     uint8_t wq_head = wq->head;
     uint8_t cq_tail = cq->tail;
 
+#ifdef FLEXUS
+
 #ifdef DEBUG_FLEXUS_STATS
     call_magic_2_64(wq_head, NEWWQENTRY_START, op_count_issued);
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
@@ -216,13 +254,13 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 
     DLogPerf("lbuff_slot: %"PRIu64" snid: %u ctx_id: %lu ctx_offset %"PRIu64" length: %"PRIu64, lbuff_slot, snid, ctx_id, ctx_offset, length);
 
-#ifdef FLEXUS
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
-#endif
 
 #ifdef DEBUG_FLEXUS_STATS
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 #endif
+
+#endif /* FLEXUS */
 
     wq->head =  wq->head + 1;
     // check if WQ reached its end
@@ -283,4 +321,5 @@ inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx
         wq->SR ^= 1;
     }
 }
+
 #endif /* H_SONUMA */

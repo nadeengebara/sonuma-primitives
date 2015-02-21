@@ -8,8 +8,6 @@
 
 #ifndef H_SON_ASM
 #define H_SON_ASM
-//
-//#include "RMCdefines.h"
 
 static inline __attribute__ ((always_inline))
     void create_wq_entry(uint8_t op, uint8_t SR, uint8_t cid, uint16_t nid,
