@@ -172,14 +172,20 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
 
     uint32_t counter = 0;
     //initialize the local buffer
-    for(i=0; i<(buff_size*sizeof(uint8_t)); i++) {
+    for(i = 0; i < (buff_size*sizeof(uint8_t)); i++) {
         buff[i] = 0;
-        counter = i*sizeof(uint8_t)/PAGE_SIZE;
-        call_magic_2_64((uint64_t)&(buff[i] ), BUFFER, counter);
+        if ( (i % PAGE_SIZE) == 0) {
+            counter = i*sizeof(uint8_t)/PAGE_SIZE;
+            // map the buffer's pages in Flexus
+            call_magic_2_64((uint64_t)&(buff[i] ), BUFFER, counter);
+        }
     }
-    
+   
+#ifdef FLEXI_MODE
     DLog("[sonuma] Call Flexus magic call (BUFFER_SIZE).");
     call_magic_2_64(42, BUFFER_SIZE, buff_size); // register local buffer
+#endif /* FLEXI_MODE */
+
 #else
     DLog("[sonuma] kal_reg_lbuff called in VM mode.");
     //tell the KAL how long is the buffer
@@ -208,21 +214,27 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     if (retcode != 0) {
         DLog("[sonuma] Context buffer mlock returned %d", retcode);
     } else {
-        DLog("[sonuma] Context buffer was pinned successfully.");
+        DLog("[sonuma] Context buffer (size=%d, %d pages) was pinned successfully.", ctx_size, num_pages);
     }
 
     counter = 0;
     //initialize the context buffer
     ctx[0] = DEFAULT_CTX_VAL;
-    call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0);
-    for(i=0; i<ctx_size; i+=PAGE_SIZE) {
+    call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
+    for(i = 0; i < (ctx_size*sizeof(uint8_t)); i++) {
         *(ctx + i) = DEFAULT_CTX_VAL;
-        counter++;
-        call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, counter);
+        if ( (i % PAGE_SIZE) == 0) {
+            // map the context's pages in Flexus
+            call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, i);
+        }
     }
+
+#ifdef FLEXI_MODE
     DLog("[sonuma] Call Flexus magic call (CONTEXT_SIZE).");
     call_magic_2_64(42, CONTEXT_SIZE, ctx_size); // register ctx
-#else
+#endif /* FLEXI_MODE */
+
+#else // Linux, not flexus
     DLog("[sonuma] kal_reg_ctx called in VM mode.");
     int tmp = ((int *)ctx)[0];
 

@@ -93,17 +93,39 @@ void flexus_signal_all_set();
 inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) __attribute__((always_inline));
 
 /**
- * This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ.
+ * @usage This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ.
+ *
+ * @param wq            pointer to WQ
+ * @param lbuff_slot    pointer to local buffer
+ * @param snid          destination node (positive integer)
+ * @param ctx_id        context identifier (positive integer)
+ * @param ctx_offset    context offset in bytes
+ * @param length        object length (cache lines number)
  */
 inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
 /**
- * This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ and waits for its completion.
+ * @usage This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ and waits for its completion.
+ *
+ * @param wq            pointer to WQ
+ * @param cq            pointer to CQ
+ * @param lbuff_slot    pointer to local buffer
+ * @param snid          destination node (positive integer)
+ * @param ctx_id        context identifier (positive integer)
+ * @param ctx_offset    context offset in bytes
+ * @param length        object length (cache lines number)
  */
 inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
 /**
- * This func polls for a free entry in WQ and, then, adds a Remote Write request to WQ.
+ * @usage This func polls for a free entry in WQ and, then, adds a Remote Write request to WQ.
+ *
+ * @param wq            pointer to WQ
+ * @param lbuff_slot    pointer to local buffer
+ * @param snid          destination node (positive integer)
+ * @param ctx_id        context identifier (positive integer)
+ * @param ctx_offset    context offset in bytes
+ * @param length        object length (cache lines number)
  */
 inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
@@ -159,7 +181,7 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
     uint8_t wq_head = wq->head;
 
 #ifdef FLEXUS
-    create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+    create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 #endif
 
 #ifdef DEBUG_FLEXUS_STATS
@@ -192,8 +214,10 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
     op_count_issued++;
 #endif
 
+    DLogPerf("lbuff_slot: %"PRIu64" snid: %u ctx_id: %lu ctx_offset %"PRIu64" length: %"PRIu64, lbuff_slot, snid, ctx_id, ctx_offset, length);
+
 #ifdef FLEXUS
-    create_wq_entry(RMC_READ, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+    create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 #endif
 
 #ifdef DEBUG_FLEXUS_STATS

@@ -1,10 +1,12 @@
 #define __STDC_FORMAT_MACROS
 #include "libsonuma/sonuma.h"
 
-#define ITERS 100000
-// flexus runs in Flexi mode (request size is Flexus' dynamic parameter)
-#define OBJECT_STUB 0
-#define LENGTH_STUB 64
+#define ITERS           100000
+// SLOT_SIZE must be >= OBJ_READ_SIZE
+#define SLOT_SIZE       128
+#define OBJ_READ_SIZE   128
+// only a single context is used
+#define CTX_0           0
 
 rmc_wq_t *wq;
 rmc_cq_t *cq;
@@ -53,7 +55,7 @@ int main(int argc, char **argv)
         return 1;
     }
     kal_reg_ctx(0, &ctx, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
-    fprintf(stdout, "Ctx buffer was registered.\n");
+    fprintf(stdout, "Ctx buffer was registered, ctx_size=%d, %d pages.\n", ctx_size, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
 
     kal_reg_wq(0, &wq);
     fprintf(stdout, "WQ was registered.\n");
@@ -61,18 +63,18 @@ int main(int argc, char **argv)
     kal_reg_cq(0, &cq);
     fprintf(stdout, "CQ was registered.\n");
 
-    fprintf(stdout,"Init done! Will execute %d WQ operations - ASYNC!\n NOTE: This app is in FLEXI mode! (snid = %d)\n", num_iter, snid);
+    fprintf(stdout,"Init done! Will execute %d WQ operations - SYNC! (snid = %d)\n", num_iter, snid);
     flexus_signal_all_set();
 
     //uB kernel
-    for(size_t i; i < num_iter; i++) {
-        // WARNING: in FLEXI mode lbuff slot is just a serial number of the buffer slot
-        //          ctx_offset is generated randomly by flexus
-        //          LENGTH is configured by Flexus model parameter
-        //
-        lbuff_slot = i;//(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
-        ctx_offset = i;// + op_count_issued * SLOT_SIZE) % ctx_size;
-        rmc_rread_sync(wq, cq, lbuff_slot, snid, OBJECT_STUB, ctx_offset, LENGTH_STUB);
+    for(size_t i = 0; i < num_iter; i++) {
+        lbuff_slot = (void *)( lbuff + ((i * SLOT_SIZE) % (buf_size - SLOT_SIZE)) );
+        ctx_offset = (i * SLOT_SIZE) % (ctx_size - SLOT_SIZE);
+        rmc_rread_sync(wq, cq, lbuff_slot, snid, CTX_0, ctx_offset, OBJ_READ_SIZE / BLOCK_SIZE);
+#ifdef DEBUG_PERF
+        assert(((uint64_t *)lbuff_slot)[0] == 0x7B7B7B7B7B7B7B7B); // all bytes should be equal to DEFAULT_CTX_VALUE=0x7B
+#endif
+        DLogPerf("first byte: %"PRIu64, ((uint64_t *)lbuff_slot)[0]);
     }
 
 free(lbuff);
