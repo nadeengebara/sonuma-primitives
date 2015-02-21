@@ -142,9 +142,7 @@ int main(int argc, char **argv)
         do {
             while (cq->q[cq_tail].SR == cq->SR) {
                 tid = cq->q[cq_tail].tid;
-#ifdef version2_1
                 wq->q[tid].valid = 0;
-#endif
                 //do whatever is needed with tid here
                 op_count_completed++;
 
@@ -156,33 +154,29 @@ int main(int argc, char **argv)
                 call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
                 cq_tail = cq->tail;
             }
-#ifdef version2_1
         } while (wq->q[wq_head].valid);
-#else
-    } while (wq->SR != cq->SR);
-#endif
 
-    //schedule
-    lbuff_slot = op_count_issued;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
-    ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
-    //fprintf(stdout,"buf offset = %"PRIu64"\n", ctx_offset);
-    wq_head = wq->head;
+        //schedule
+        lbuff_slot = op_count_issued;    //(void *)(lbuff + ((op_count_issued * SLOT_SIZE) % buf_size));
+        ctx_offset = op_count_issued + ((snid-1) << 20);// + op_count_issued * SLOT_SIZE) % ctx_size;
+        //fprintf(stdout,"buf offset = %"PRIu64"\n", ctx_offset);
+        wq_head = wq->head;
 
-    create_wq_entry(RMC_READ, wq->SR, 0, snid, (uint64_t)lbuff_slot, ctx_offset, 42, (uint64_t)&(wq->q[wq_head]));
-    op_count_issued++;
-    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+        create_wq_entry(RMC_READ, wq->SR, 0, snid, (uint64_t)lbuff_slot, ctx_offset, 42, (uint64_t)&(wq->q[wq_head]));
+        op_count_issued++;
+        call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 
-    wq->head =  wq->head + 1;
-    if (wq->head >= MAX_NUM_WQ) {
-        wq->head = 0;
-        wq->SR ^= 1;
+        wq->head =  wq->head + 1;
+        if (wq->head >= MAX_NUM_WQ) {
+            wq->head = 0;
+            wq->SR ^= 1;
+        }
     }
-}
 
-free(lbuff);
-free(ctx);
-free(wq);
-free(cq);
+    free(lbuff);
+    free(ctx);
+    free(wq);
+    free(cq);
 
-return 0;
+    return 0;
 }
