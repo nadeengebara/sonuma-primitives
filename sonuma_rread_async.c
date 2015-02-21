@@ -71,7 +71,7 @@ int main(int argc, char **argv)
         rmc_check_cq(wq, cq, &handler, NULL);
         lbuff_slot = (void *)( lbuff + ((i * SLOT_SIZE) % buf_size) );
         ctx_offset = (i * SLOT_SIZE) % ctx_size;
-        rmc_rread_async(wq, lbuff_slot, snid, CTX_0, ctx_offset, OBJ_READ_SIZE / BLOCK_SIZE);
+        rmc_rread_async(wq, lbuff_slot, snid, CTX_0, ctx_offset, OBJ_READ_SIZE);
 #ifdef DEBUG_PERF
         assert(((uint64_t *)lbuff_slot)[0] == 0x7B7B7B7B7B7B7B7B); // all bytes should be equal to DEFAULT_CTX_VALUE=0x7B
 #endif

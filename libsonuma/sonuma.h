@@ -118,7 +118,7 @@ inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, voi
  * @param snid          destination node (positive integer)
  * @param ctx_id        context identifier (positive integer)
  * @param ctx_offset    context offset in bytes
- * @param length        object length (cache lines number)
+ * @param length        object length (bytes)
  */
 inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
@@ -131,7 +131,7 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
  * @param snid          destination node (positive integer)
  * @param ctx_id        context identifier (positive integer)
  * @param ctx_offset    context offset in bytes
- * @param length        object length (cache lines number)
+ * @param length        object length (bytes)
  */
 inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
@@ -143,7 +143,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
  * @param snid          destination node (positive integer)
  * @param ctx_id        context identifier (positive integer)
  * @param ctx_offset    context offset in bytes
- * @param length        object length (cache lines number)
+ * @param length        object length (bytes)
  */
 inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
@@ -198,6 +198,7 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
 #ifdef FLEXUS
     DLogPerf("[sonuma] rmc_rread_async called in Flexus mode.");
     uint8_t wq_head = wq->head;
+    length = length / BLOCK_SIZE; // number of cache lines
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 
 #ifdef DEBUG_FLEXUS_STATS
@@ -249,6 +250,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 
     DLogPerf("lbuff_slot: %"PRIu64" snid: %u ctx_id: %lu ctx_offset %"PRIu64" length: %"PRIu64, lbuff_slot, snid, ctx_id, ctx_offset, length);
 
+    length = length / BLOCK_SIZE; // number of cache lines
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 
 #ifdef DEBUG_FLEXUS_STATS
@@ -299,6 +301,7 @@ inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx
     }
 
 #ifdef FLEXUS
+    length = length / BLOCK_SIZE; // number of cache lines
     create_wq_entry(RMC_WRITE, wq->SR, ctx_id, snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 #endif
 

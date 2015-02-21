@@ -255,9 +255,11 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 void flexus_signal_all_set() {
 #ifdef FLEXUS
     if (is_timing == 0) {
+#ifdef DEBUG_FLEXUS_STATS
         // global variables for sonuma operation counters
         op_count_issued = 0;
         op_count_completed = 0;
+#endif
         
         DLog("[sonuma] Call Flexus magic call (ALL_SET).");
         call_magic_2_64(1, ALL_SET, 1);
@@ -271,6 +273,7 @@ void flexus_signal_all_set() {
 #endif /* FLEXUS */
 }
 
+#ifndef FLEXUS
 int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem) {
     qp_info_t * qp_info = (qp_info_t *)malloc(sizeof(qp_info_t));
     int ret;
@@ -292,3 +295,4 @@ void rmc_deinit() {
     deactivate_rmc();
     pthread_join(rmc_thread, NULL);
 }
+#endif /* !FLEXUS */
