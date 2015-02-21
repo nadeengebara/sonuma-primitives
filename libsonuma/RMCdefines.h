@@ -8,7 +8,7 @@
 #ifndef H_RMC_DEFINES
 #define H_RMC_DEFINES
 
-#define version2_1    //soNUMA protocol version that is being used (2.0 otherwise)
+//#define FLEXI_MODE  // do not use flexi mode unless for flexus ubenches
 
 #define MAX_NUM_WQ      128
 #define DEFAULT_CTX_VAL 123
@@ -82,7 +82,6 @@
 */
 ///////////////////////////////////////////////////////////////////////
 
-#ifdef version2_1
 typedef struct wq_entry{
     //first double-word (8 bytes)
     uint8_t op : 6;        //up to 64 soNUMA ops
@@ -95,19 +94,6 @@ typedef struct wq_entry{
     uint64_t offset : 40;
     uint64_t length : 24;
 } wq_entry_t;
-
-#else
-//THIS IS NOT PORTABLE - USE OF EXPLICIT BITMASKS IS PROBABLY A BETTER IDEA
-typedef struct wq_entry{
-    uint8_t op : 2;
-    uint8_t SR : 1;        //sense reverse bit
-    uint8_t cid : 4;
-    uint16_t nid : 9;
-    uint64_t buf_addr : 48;        //42 + 6 bits for alignment
-    uint64_t offset : 40;        //37 + 3 bits for alignment
-    uint64_t length : 24;        //19 + 5 bits for alignment - length in terms of blocks
-} wq_entry_t;
-#endif    //ifdef version2_1
 
 typedef struct cq_entry{
     volatile uint8_t SR : 1;     //sense reverse bit
