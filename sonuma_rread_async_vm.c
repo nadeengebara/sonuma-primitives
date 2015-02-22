@@ -3,7 +3,7 @@
 
 #define BILLION 1000000000L
 #define ITERS 10000000
-#define SLOT_SIZE 4096
+#define SLOT_SIZE 64
 
 rmc_wq_t *wq;
 rmc_cq_t *cq;
@@ -65,7 +65,8 @@ int main(int argc, char **argv) {
     fprintf(stdout, "CQ was registered.\n");
 
     //initialize and activate RMC
-    rmc_init(node_count, this_nid, wq, cq, ctx);
+    rmc_init(node_count, this_nid,
+	     wq, cq, ctx, ctx_size);
 
     //uB kernel
     op_count_completed = 0;
@@ -81,7 +82,7 @@ int main(int argc, char **argv) {
         rmc_check_cq(wq, cq, &handler, NULL);
 
 	lbuff_slot = (void *)(lbuff + ((op_count_issued * SLOT_SIZE) % PAGE_SIZE));
-	ctx_offset = (op_count_issued * SLOT_SIZE) % PAGE_SIZE;
+	ctx_offset = (op_count_issued * SLOT_SIZE) % ctx_size;
 
         rmc_rread_async(wq, (uint64_t)lbuff_slot, snid, 0, ctx_offset, SLOT_SIZE);
 	//printf("[rread_async] issued read\n");

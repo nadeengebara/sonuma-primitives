@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
 static bool rmc_active;
 static int fd;
@@ -19,31 +20,33 @@ int rmc_open(char *shm_name) {
     return fd;
 }
 
-int setup_pgas(void *pgas) {
+int setup_pgas(void *pgas, unsigned long size) {
     fd = rmc_open("/root/node");
 
     if(ioctl(fd, 1, (void *)0) == -1) {
 	return -1;
     }
 
-    pgas = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    pgas = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (pgas == MAP_FAILED) {
 	close(fd);
 	perror("Error mmapping the file");
 	exit(EXIT_FAILURE);
     }
     
-    printf("[soft_rmc] remote region successfully mapped\n");
+    printf("[soft_rmc] remote region successfully mapped, %lu bytes\n", size);
 
     return 0;
 }
 
 int destroy_pgas(void *pgas) {
+    /*
     if(ioctl(fd, 1, (void *)pgas) == -1) {
 	return -1;
     }
-
-    munmap(pgas, PAGE_SIZE);
+    */
+    
+    munmap(pgas, 4 * PAGE_SIZE);
     return 0;
 }
 
@@ -51,6 +54,7 @@ void *core_rmc_fun(void *arg) {
     qp_info_t * qp_info = (qp_info_t *)arg;
     rmc_wq_t * wq = qp_info->wq;
     rmc_cq_t * cq = qp_info->cq;
+    unsigned long size = qp_info->ctx_size;
 
     //WQ ptrs
     uint8_t local_wq_tail = 0;
@@ -66,13 +70,13 @@ void *core_rmc_fun(void *arg) {
 
     //TODO: initialize remote domain references
     //for now, just use one page in remote domain
-    setup_pgas(pgas);
+    setup_pgas(pgas, size);
 
     rmc_active = true;
 
     while(rmc_active) {
 	while (wq->q[local_wq_tail].SR == local_wq_SR) {
-	    //printf("[core_rmc] reading remote memory\n");
+	    printf("[core_rmc] reading remote memory, buf_offset = %lu\n", wq->q[local_wq_tail].offset);
 	    //perform remote read
 	    memcpy((uint8_t *)wq->q[local_wq_tail].buf_addr, 
 		   pgas + (wq->q[local_wq_tail].offset),

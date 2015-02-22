@@ -9,7 +9,7 @@
 #define H_RMC_DEFINES
 
 //#define FLEXI_MODE  // do not use flexi mode unless for flexus ubenches
-#define FLEXUS
+//#define FLEXUS
 
 #define MAX_NUM_WQ      128
 #define DEFAULT_CTX_VAL 123
@@ -142,6 +142,7 @@ typedef struct qp_info {
     uint8_t *ctx_mem;
     int node_cnt;
     int this_nid;
+    unsigned long ctx_size;
 } qp_info_t;
 
 #endif /* H_RMC_DEFINES */

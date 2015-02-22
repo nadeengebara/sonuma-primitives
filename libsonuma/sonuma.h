@@ -98,7 +98,7 @@ void flexus_signal_all_set();
 /**
  * This func initializes the Soft RMC.
  */
-int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem);
+int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem, unsigned long size);
 
 /**
  * This func deinitialized the Soft RMC
@@ -195,9 +195,10 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
     DLogPerf("[sonuma] rmc_rread_async called in VM mode.");
 #endif
 
+    uint8_t wq_head = wq->head;
+    
 #ifdef FLEXUS
     DLogPerf("[sonuma] rmc_rread_async called in Flexus mode.");
-    uint8_t wq_head = wq->head;
     length = length / BLOCK_SIZE; // number of cache lines
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 
@@ -237,7 +238,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 #else
     DLogPerf("[sonuma] rmc_rread_sync called in VM mode.");
 #endif
-    uint8_t wq_head = wq->head;
+    //uint8_t wq_head = wq->head; //snovakov: will be used, leave it there
     uint8_t cq_tail = cq->tail;
 
 #ifdef FLEXUS
