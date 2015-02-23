@@ -214,15 +214,16 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     if (retcode != 0) {
         DLog("[sonuma] Context buffer mlock returned %d", retcode);
     } else {
-        DLog("[sonuma] Context buffer (size=%d, %d pages) was pinned successfully.", ctx_size, num_pages);
+        DLog("[sonuma] Context buffer (size=%d, %d pages) was pinned successfully in Flexus.", ctx_size, num_pages);
     }
 
     counter = 0;
     //initialize the context buffer
-    ctx[0] = DEFAULT_CTX_VAL;
     call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
     for(i = 0; i < (ctx_size*sizeof(uint8_t)); i++) {
+#ifdef DEBUG_PERF
         *(ctx + i) = DEFAULT_CTX_VAL;
+#endif
         if ( (i % PAGE_SIZE) == 0) {
             // map the context's pages in Flexus
             call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, i);
