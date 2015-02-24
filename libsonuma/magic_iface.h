@@ -149,6 +149,24 @@ static inline __attribute__ ((always_inline))
     }
 
 static inline __attribute__ ((always_inline))
+    uint64_t  call_magic_sim_break(uint64_t son_function, uint64_t arg1, uint64_t arg2){
+        uint64_t  ret_value;
+
+        __asm__ __volatile__ (
+                "mov %1, %%l0\n\t"
+                "mov %2, %%l1\n\t"
+                "mov %3, %%l2\n\t"
+                "sethi 1, %%g0\n\t"
+                "mov %%l0, %0\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(son_function), "r"(arg1), "r"(arg2)      /* input registers*/
+                : "%l0", "%l1", "%l2"   /* clobbered registers*/
+                );
+
+        return ret_value;
+    }
+
+static inline __attribute__ ((always_inline))
     uint64_t  call_magic_2_64(uint64_t son_function, uint64_t arg1, uint64_t arg2){
         uint64_t  ret_value;
 

@@ -91,9 +91,11 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages);
 int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages);
 
 /**
- * This func signals Flexus to interrupt fast simulation and start clock precise modelling.
+ * @usage This func signals Flexus to interrupt fast simulation and start clock precise modelling.
+ *
+ * @param id            id that must be unique for each invocation place of this func
  */
-void flexus_signal_all_set();
+void flexus_signal_all_set(int id);
 
 /**
  * This func initializes the Soft RMC.

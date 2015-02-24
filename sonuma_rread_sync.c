@@ -1,5 +1,6 @@
 #define __STDC_FORMAT_MACROS
 #include "libsonuma/sonuma.h"
+#include <unistd.h>
 
 #define ITERS           100000
 // SLOT_SIZE must be >= OBJ_READ_SIZE
@@ -63,8 +64,11 @@ int main(int argc, char **argv)
     kal_reg_cq(0, &cq);
     fprintf(stdout, "CQ was registered.\n");
 
+//    fprintf(stdout,"Init 0 done! ");
+//    sleep(1);
+//    call_magic_sim_break(1, 1, 1);
     fprintf(stdout,"Init done! Will execute %d WQ operations - SYNC! (snid = %d)\n", num_iter, snid);
-    flexus_signal_all_set();
+    flexus_signal_all_set(1);
 
     //uB kernel
     for(size_t i = 0; i < num_iter; i++) {

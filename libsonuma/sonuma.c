@@ -59,12 +59,17 @@ return spin_cycles;
 
 
 // global variable to switch Flexus to timing mode only once
-int is_timing = 0;
+#define ALL_SET_IDS_NUM 8
+int was_called[ALL_SET_IDS_NUM];
+int prev_call_id    = 0; // must be from 0 to 7
 
 /////////////////////// IMPLEMENTATION //////////////////////////////
 int kal_open(char *kal_name) {
 #ifdef FLEXUS
-    DLog("[sonuma] kal_open called in FLEXUS mode. Do nothing.");
+    DLog("[sonuma] kal_open called in FLEXUS mode.");
+    for (size_t i = 0; i < ALL_SET_IDS_NUM; i++) {
+        was_called[i] = 0; // false
+    }
     return 0; // not used with Flexus
 #else
     DLog("[sonuma] kal_open called in VM mode.");
@@ -253,9 +258,9 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     return 0;
 }
 
-void flexus_signal_all_set() {
+void flexus_signal_all_set(int id) {
 #ifdef FLEXUS
-    if (is_timing == 0) {
+    if (was_called[id] == 0) {
 #ifdef DEBUG_FLEXUS_STATS
         // global variables for sonuma operation counters
         op_count_issued = 0;
@@ -263,10 +268,10 @@ void flexus_signal_all_set() {
 #endif
         
         DLog("[sonuma] Call Flexus magic call (ALL_SET).");
-        call_magic_2_64(1, ALL_SET, 1);
-        is_timing = 1;
+        call_magic_2_64(1, ALL_SET, id);
+        was_called[id] = 1;
     } else {
-        DLog("[sonuma] (ALL_SET) magic call won't be called more than once.");
+        DLog("[sonuma] (ALL_SET) magic call with ID=%d won't be called more than once.", id);
     }
 #else
     DLog("[sonuma] flexus_signal_all_set called in VM mode. Do nothing.");
