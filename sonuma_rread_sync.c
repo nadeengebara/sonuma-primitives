@@ -12,6 +12,32 @@
 rmc_wq_t *wq;
 rmc_cq_t *cq;
 
+const char* br_points[] = {
+    "BLANK",            // 0 
+    "WQUEUE",           // 1 
+    "CQUEUE",           // 2 
+    "BUFFER",           // 3 
+    "PTENTRY",          // 4 
+    "NEWWQENTRY",       // 5 
+    "WQENTRYDONE",      // 6 
+    "ALL_SET",          // 7 
+    "TID_COUNTERS",     // 8 
+    "CONTEXT",          // 9 
+    "CONTEXTMAP",       // 10
+    "WQHEAD",           // 11
+    "WQTAIL",           // 12
+    "CQHEAD",           // 13
+    "CQTAIL",           // 14
+    "SIM_BREAK",        // 15
+    "NETPIPE_START",    // 16
+    "NETPIPE_END",      // 17
+    "RMC_DEBUG_BP",     // 18
+    "PAGERANK_END",     // 19
+    "BUFFER_SIZE",      // 20
+    "CONTEXT_SIZE",     // 21
+    "NEWWQENTRY_START"  // 22
+}; 
+
 #ifdef DEBUG_FLEXUS_STATS
 // global variables from sonuma.h
 uint64_t op_count_issued;
@@ -64,9 +90,8 @@ int main(int argc, char **argv)
     kal_reg_cq(0, &cq);
     fprintf(stdout, "CQ was registered.\n");
 
-//    fprintf(stdout,"Init 0 done! ");
-//    sleep(1);
-//    call_magic_sim_break(1, 1, 1);
+    fprintf(stdout,"Init 0 done! ");
+    call_magic_sim_break(3, 2, 1);
     fprintf(stdout,"Init done! Will execute %d WQ operations - SYNC! (snid = %d)\n", num_iter, snid);
     flexus_signal_all_set(1);
 

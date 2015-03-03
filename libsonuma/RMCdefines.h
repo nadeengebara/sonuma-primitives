@@ -14,6 +14,7 @@
 #define MAX_NUM_WQ      128
 #define DEFAULT_CTX_VAL 123
 
+#ifdef FLEXUS
 //breakpoint IDs
 #define WQUEUE              1
 #define CQUEUE              2
@@ -38,6 +39,8 @@
 #define CONTEXT_SIZE        21
 #define NEWWQENTRY_START    22
 
+extern const char* br_points[];
+#endif /* FLEXUS */
 
 //stuff for Page Walks
 #define PT_I 3
