@@ -20,7 +20,18 @@
 #include <fcntl.h>
 #include <string.h>
 
-void deactivate_rmc();
+#include "RMCdefines.h"
+
+#define MAX_NODE_CNT 24
+
+//#define DEBUG_RMC
+
+//RMC thread
 void *core_rmc_fun(void *arg);
+void deactivate_rmc();
+
+int soft_rmc_wq_reg(rmc_wq_t *qp_wq);
+int soft_rmc_cq_reg(rmc_cq_t *qp_cq);
+int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt);
 
 #endif

@@ -54,7 +54,7 @@ extern uint64_t op_count_completed;
 
 static pthread_t rmc_thread;
 
-typedef void (async_handler)(uint8_t tid, wq_entry_t head, void *owner);
+typedef void (async_handler)(uint8_t tid, wq_entry_t *head, void *owner);
 
 /**
  * VM infra only!!!
@@ -98,7 +98,7 @@ void flexus_signal_all_set();
 /**
  * This func initializes the Soft RMC.
  */
-int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem, unsigned long size);
+int rmc_init(int node_cnt, int this_nid);
 
 /**
  * This func deinitialized the Soft RMC
@@ -185,7 +185,7 @@ inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, voi
             DLogPerf("Checking CQ %"PRIu64" time...", op_count_completed);
 #endif
             cq_tail = cq->tail;
-            handler(tid, wq->q[wq_head], owner);
+            handler(tid, &(wq->q[tid]), owner); //snovakov:changed wq_head to tid in wq->q[], also, passing address now
         }
     } while (wq->q[wq_head].valid);
 }
@@ -238,7 +238,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 #else
     DLogPerf("[sonuma] rmc_rread_sync called in VM mode.");
 #endif
-    //uint8_t wq_head = wq->head; //snovakov: will be used, leave it there
+    uint8_t wq_head = wq->head;
     uint8_t cq_tail = cq->tail;
 
 #ifdef FLEXUS
@@ -258,6 +258,19 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
 #endif
 
+#else // Linux below
+    wq->q[wq_head].buf_addr = lbuff_slot;
+    wq->q[wq_head].cid = ctx_id;
+    wq->q[wq_head].offset = ctx_offset;
+    if(length < 64)
+	wq->q[wq_head].length = 64; //at least 64B
+    else
+	wq->q[wq_head].length = length; //specify the length of the transfer
+    wq->q[wq_head].op = 'r';
+    wq->q[wq_head].nid = snid;
+    //soNUMA v2.1
+    wq->q[wq_head].valid = 1;
+    wq->q[wq_head].SR = wq->SR;
 #endif /* FLEXUS */
 
     wq->head =  wq->head + 1;
@@ -267,7 +280,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
         wq->SR ^= 1;
     }
 
-    cq_tail = cq->tail;
+    //cq_tail = cq->tail;
 
     // wait for a completion of the entry
     while(cq->q[cq_tail].SR != cq->SR) {
@@ -286,7 +299,6 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
         cq->tail = 0;
         cq->SR ^= 1;
     }    
-
 }
 
 inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {

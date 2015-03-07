@@ -108,10 +108,15 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_wq called in VM mode.");
+#ifdef KERNEL_RMC
     //posix_memalign((void **)wq, PAGE_SIZE, sizeof(rmc_wq_t));
-    //if(ioctl(fd, KAL_REG_WQ, (void *)wq) == -1) {
-    //  return -1;
-    //}
+    if(ioctl(fd, KAL_REG_WQ, (void *)wq) == -1) {
+      return -1;
+    }
+#else
+    if(soft_rmc_wq_reg(*wq_ptr) < 0)
+	return -1;
+#endif
 #endif /* FLEXUS */
 
     return 0;
@@ -146,22 +151,40 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_cq called in VM mode.");
-    //posix_memalign((void **)cq, PAGE_SIZE, sizeof(rmc_cq_t));
+#ifdef KERNEL_RMC
+    posix_memalign((void **)cq, PAGE_SIZE, sizeof(rmc_cq_t));
     //register completion queue
-    //if (ioctl(fd, KAL_REG_CQ, (void *)cq) == -1) {
-    //    return -1;
-    //}
+    if (ioctl(fd, KAL_REG_CQ, (void *)cq) == -1) {
+        return -1;
+    }
+#else
+    if(soft_rmc_cq_reg(*cq_ptr) < 0)
+	return -1;
+#endif
 #endif /* FLEXUS */
 
     return 0;
 }
 
 int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
-    assert(buff_ptr != NULL);
     uint8_t *buff = *buff_ptr;
+    uint64_t buff_size = num_pages * PAGE_SIZE;
+    if(*buff_ptr == NULL) {
+	//buff hasn't been allocated in the main application code
+	printf("[soft_rmc] local buffer memory hasn't been allocated.. allocating\n");
+#ifdef FLEXUS
+	buff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
+#else
+	*buff_ptr = (uint8_t *)malloc(buff_size * sizeof(uint8_t));
+#endif
+	if (*buff_ptr == NULL) {
+	    fprintf(stdout, "Local buffer could not be allocated.\n");
+	    return -1;
+	}
+    }
+    
 #ifdef FLEXUS
     int i, retcode;
-    uint64_t buff_size = num_pages * PAGE_SIZE;
     // buffers allocation is done by app
     retcode = mlock((void *)buff, buff_size * sizeof(uint8_t));
     if (retcode != 0) {
@@ -187,6 +210,7 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
 #endif /* FLEXI_MODE */
 
 #else
+#ifdef KERNEL_RMC
     DLog("[sonuma] kal_reg_lbuff called in VM mode.");
     //tell the KAL how long is the buffer
     ((int *)buff)[0] = num_pages;
@@ -198,6 +222,9 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
     }
 
     ((int *)buff)[0] = 0x0;
+#else //SOFT_RMC
+    //nothing to be done
+#endif
 #endif /* FLEXUS */
 
     return 0;
@@ -206,9 +233,12 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
 int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     assert(ctx_ptr != NULL);
     uint8_t *ctx = *ctx_ptr;
+   
 #ifdef FLEXUS
     int i, retcode, counter;
     int ctx_size = num_pages * PAGE_SIZE;
+    if(ctx == NULL)
+	ctx = memalign(PAGE_SIZE, ctx_size*sizeof(uint8_t));
     // buffers allocation is done by app
     retcode = mlock((void *)ctx, ctx_size*sizeof(uint8_t));
     if (retcode != 0) {
@@ -236,6 +266,7 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 
 #else // Linux, not flexus
     DLog("[sonuma] kal_reg_ctx called in VM mode.");
+#ifdef KERNEL_RMC
     int tmp = ((int *)ctx)[0];
 
     ((int *)ctx)[0] = num_pages;
@@ -247,6 +278,14 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     }
 
     ((int *)ctx)[0] = tmp;
+#else //USER RMC (SOFT RMC)
+    if(*ctx_ptr == NULL) {
+	soft_rmc_ctx_alloc((char **)ctx_ptr, num_pages);
+    } else {
+	DLog("[sonuma] error: context memory allready allocated\n");
+	return -1;
+    }
+#endif
 #endif /* FLEXUS */
 
     return 0;
@@ -273,16 +312,12 @@ void flexus_signal_all_set() {
 #endif /* FLEXUS */
 }
 
-int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem, unsigned long size) {
+int rmc_init(int node_cnt, int this_nid) {
 #ifndef FLEXUS
     qp_info_t * qp_info = (qp_info_t *)malloc(sizeof(qp_info_t));
 
-    qp_info->wq = wq;
-    qp_info->cq = cq;
-    qp_info->ctx_mem = ctx_mem;
     qp_info->node_cnt = node_cnt;
     qp_info->this_nid = this_nid;
-    qp_info->ctx_size = size;
     
     printf("[sonuma] activating RMC..\n");
     return pthread_create(&rmc_thread, 
