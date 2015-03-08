@@ -3,9 +3,9 @@
 
 #define BILLION 1000000000L
 #define ITERS 10000000
-#define SLOT_SIZE 64
+#define SLOT_SIZE 4096
 
-//#define ASYNC
+#define ASYNC
 
 rmc_wq_t *wq;
 rmc_cq_t *cq;
