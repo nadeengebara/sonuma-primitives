@@ -280,7 +280,8 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     ((int *)ctx)[0] = tmp;
 #else //USER RMC (SOFT RMC)
     if(*ctx_ptr == NULL) {
-	soft_rmc_ctx_alloc((char **)ctx_ptr, num_pages);
+	if(soft_rmc_ctx_alloc((char **)ctx_ptr, num_pages) < 0)
+	    return -1;
     } else {
 	DLog("[sonuma] error: context memory allready allocated\n");
 	return -1;

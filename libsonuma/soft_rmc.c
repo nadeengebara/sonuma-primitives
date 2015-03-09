@@ -53,6 +53,7 @@ static int rmc_open(char *shm_name) {
 
 //allocates local memory and maps remote memory 
 int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
+    ioctl_info_t info; 
     int i;
 
     printf("[soft_rmc] soft_rmc_alloc_ctx ->\n");
@@ -67,15 +68,16 @@ int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
 		MAP_SHARED, fd, 0);
     
     ctx[mynid] = *mem;
-    
+
     printf("[soft_rmc] registered local memory\n");
     printf("[soft_rmc] registering remote memory, number of remote nodes %d\n", node_cnt-1);
- 
+
+    info.op = RMAP;
     //map the rest of pgas
     for(i=0; i<node_cnt; i++) {
 	if(i != mynid) {
-	    printf("[soft_rmc] mapping memory of node %d\n", i);
-	    if(ioctl(fd, i, (void *)0) == -1) {
+	    info.node_id = i;
+	    if(ioctl(fd, 0, (void *)&info) == -1) {
 		printf("[soft_rmc] ioctl failed\n");
 		return -1;
 	    }
@@ -88,6 +90,7 @@ int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
 		perror("[soft_rmc] error mmapping the file");
 		exit(EXIT_FAILURE);
 	    }
+
 #ifdef DEBUG_RMC
 	    //for testing purposes
 	    for(j=0; j<(dom_region_size)/sizeof(unsigned long); j++)
@@ -108,9 +111,13 @@ int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
 static int soft_rmc_ctx_destroy() {
     int i;
 
+    ioctl_info_t info;
+
+    info.op = RUNMAP;
     for(i=0; i<node_cnt; i++) {
 	if(i != mynid) {
-	    if(ioctl(fd, 1, (void *)(ctx[i])) == -1) {
+	    info.node_id = i;
+	    if(ioctl(fd, 0, (void *)&info) == -1) {
 		printf("[soft_rmc] failed to unmap a remote region\n");
 		return -1;
 	    }
@@ -167,6 +174,8 @@ void *core_rmc_fun(void *arg) {
 	    	   wq->q[local_wq_tail].buf_addr);
 #endif
 	    //transfer data from remote memory
+	    //printf("[soft_rmc] node id %d; offset = %d\n", offset/dom_region_size, offset%dom_region_size);
+	    
 	    memcpy((uint8_t *) wq->q[local_wq_tail].buf_addr, 
 		   ctx[offset/dom_region_size] + (offset%dom_region_size),
 		   wq->q[local_wq_tail].length);

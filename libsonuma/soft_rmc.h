@@ -24,6 +24,14 @@
 
 #define MAX_NODE_CNT 24
 
+#define RMAP 1
+#define RUNMAP 0
+
+typedef struct ioctl_info {
+    int op;
+    int node_id;
+} ioctl_info_t;
+
 //#define DEBUG_RMC
 
 //RMC thread
