@@ -18,11 +18,11 @@ static int mynid, node_cnt;
 static int dom_region_size;
 
 //queue pair info
-static volatile rmc_wq_t *wq;
-static volatile rmc_cq_t *cq;
+static volatile rmc_wq_t *wq = NULL;
+static volatile rmc_cq_t *cq = NULL;
 
 int soft_rmc_wq_reg(rmc_wq_t *qp_wq) {
-    if(qp_wq == NULL)
+    if((qp_wq == NULL) || (wq != NULL))
 	return -1;
     
     wq = qp_wq;
@@ -31,7 +31,7 @@ int soft_rmc_wq_reg(rmc_wq_t *qp_wq) {
 }
 
 int soft_rmc_cq_reg(rmc_cq_t *qp_cq) {
-    if(qp_cq == NULL)
+    if((qp_cq == NULL) || (cq != NULL))
 	return -1;
     
     cq = qp_cq;
