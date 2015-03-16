@@ -213,7 +213,7 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     uint8_t *ctx = *ctx_ptr;
 #ifdef FLEXUS
     int i, retcode, counter;
-    int ctx_size = num_pages * PAGE_SIZE;
+    uint64_t ctx_size = num_pages * PAGE_SIZE;
     // buffers allocation is done by app
     retcode = mlock((void *)ctx, ctx_size*sizeof(uint8_t));
     if (retcode != 0) {
@@ -224,11 +224,18 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 
     counter = 0;
     //initialize the context buffer
-    call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
+    
     for(i = 0; i < (ctx_size*sizeof(uint8_t)); i++) {
 #ifdef DEBUG_PERF
         *(ctx + i) = DEFAULT_CTX_VAL;
+#else
+        // ustiugov: this is a workaround to bring the context pages to the page table
+        volatile uint8_t temp = *(ctx + i);
+        *(ctx + i) = DEFAULT_CTX_VAL;
+        *(ctx + i) = temp;
 #endif
+        if (i == 0)
+            call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
         if ( (i % PAGE_SIZE) == 0) {
             // map the context's pages in Flexus
             call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, i);

@@ -1,6 +1,8 @@
 #define __STDC_FORMAT_MACROS
 #include "libsonuma/sonuma.h"
 #include <unistd.h>
+#include <sys/mman.h>
+#include <cassert>
 
 #define ITERS           100000
 // SLOT_SIZE must be >= OBJ_READ_SIZE
@@ -81,8 +83,9 @@ int main(int argc, char **argv)
         fprintf(stdout, "Context buffer could not be allocated.\n");
         return 1;
     }
+    
     kal_reg_ctx(0, &ctx, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
-    fprintf(stdout, "Ctx buffer was registered, ctx_size=%d, %d pages.\n", ctx_size, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
+    fprintf(stdout, "Ctx buffer was registered by addr=%p, ctx_size=%d, %d pages.\n", ctx, ctx_size, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
 
     kal_reg_wq(0, &wq);
     fprintf(stdout, "WQ was registered.\n");
