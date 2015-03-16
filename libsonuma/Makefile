@@ -2,7 +2,7 @@
 SHELL = /bin/sh
 CC    = g++
 
-CFLAGS       = -fPIC -Wall -g
+CFLAGS       = -fPIC -Wall -O3
 
 #-combine
 LDFLAGS	= -shared -fPIC -lc -lpthread -lrt

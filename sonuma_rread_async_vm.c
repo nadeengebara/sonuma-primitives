@@ -5,7 +5,7 @@
 #define ITERS 10000
 #define SLOT_SIZE 64
 
-#define ASYNC
+//#define ASYNC
 
 rmc_wq_t *wq;
 rmc_cq_t *cq;
@@ -16,7 +16,7 @@ static uint64_t op_count_completed;
 void handler(uint8_t tid, wq_entry_t *head, void *owner) {
     // do nothing
     //printf("[rread_async] completion handler ->\n");
-    printf("[rread_async] completed read.. value = %lu\n", *((unsigned long *)head->buf_addr));
+    //printf("[rread_async] completed read.. value = %lu\n", *((unsigned long *)head->buf_addr));
     //printf("[rread_async] completed %d operations\n", op_count_completed);
     op_count_completed++;    
 }

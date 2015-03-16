@@ -157,6 +157,8 @@ void *core_rmc_fun(void *arg) {
 
     printf("[soft_rmc] RMC activated\n");
 
+    volatile wq_entry_t *curr;
+    
     while(rmc_active) {
 	while (wq->q[local_wq_tail].SR == local_wq_SR) {
 #ifdef DEBUG_RMC
@@ -168,11 +170,12 @@ void *core_rmc_fun(void *arg) {
 
 	    printf("[soft_rmc] nid = %d; offset = %d, len = %d\n", wq->q[local_wq_tail].nid, wq->q[local_wq_tail].offset, wq->q[local_wq_tail].length);
 #endif
-	    
-	    memcpy((uint8_t *)wq->q[local_wq_tail].buf_addr,
-		   (uint8_t *)(ctx[wq->q[local_wq_tail].nid] + (wq->q[local_wq_tail].offset)),
-		   wq->q[local_wq_tail].length);
+	    curr = &(wq->q[local_wq_tail]);
 
+	    memcpy((uint8_t *)curr->buf_addr,
+		   ctx[curr->nid] + curr->offset,
+		   curr->length);
+	    
 	    compl_idx = local_wq_tail;
 
 	    local_wq_tail += 1;
