@@ -1,8 +1,8 @@
 #@author snovakov
 SHELL = /bin/sh
-CC    = gcc
+CC    = g++
 
-CFLAGS       = -fPIC -Wall -O3
+CFLAGS       = -fPIC -Wall -g
 
 #-combine
 LDFLAGS	= -shared -fPIC -lc -lpthread -lrt

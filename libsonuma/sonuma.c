@@ -167,15 +167,16 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
 }
 
 int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
-    uint8_t *buff = *buff_ptr;
     uint64_t buff_size = num_pages * PAGE_SIZE;
     if(*buff_ptr == NULL) {
 	//buff hasn't been allocated in the main application code
 	printf("[soft_rmc] local buffer memory hasn't been allocated.. allocating\n");
 #ifdef FLEXUS
+	uint8_t *buff = *buff_ptr;
 	buff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
 #else
-	*buff_ptr = (uint8_t *)malloc(buff_size * sizeof(uint8_t));
+	//*buff_ptr = (uint8_t *)malloc(buff_size * sizeof(uint8_t));
+	posix_memalign((void **)buff_ptr, PAGE_SIZE, buff_size*sizeof(char));
 #endif
 	if (*buff_ptr == NULL) {
 	    fprintf(stdout, "Local buffer could not be allocated.\n");
@@ -231,11 +232,11 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
 }
 
 int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
-    assert(ctx_ptr != NULL);
-    uint8_t *ctx = *ctx_ptr;
+    //assert(ctx_ptr != NULL);
    
 #ifdef FLEXUS
     int i, retcode, counter;
+    uint8_t *ctx = *ctx_ptr;
     int ctx_size = num_pages * PAGE_SIZE;
     if(ctx == NULL)
 	ctx = memalign(PAGE_SIZE, ctx_size*sizeof(uint8_t));

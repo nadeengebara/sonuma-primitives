@@ -87,7 +87,8 @@ int main(int argc, char **argv) {
 	lbuff_slot = (void *)(lbuff + ((op_count_issued * SLOT_SIZE)
 			       % PAGE_SIZE));
 	//ctx_offset = ctx_size + ((op_count_issued * SLOT_SIZE) % ctx_size); //only remote, two nodes
-	ctx_offset = ctx_size + ((op_count_issued * SLOT_SIZE) % (pgas_size-ctx_size)); //stream through the global AS	
+	//ctx_offset = ctx_size + ((op_count_issued * SLOT_SIZE) % (pgas_size-ctx_size)); //stream through the global AS
+	ctx_offset = ((op_count_issued * SLOT_SIZE) % ctx_size);
 #ifdef ASYNC
         rmc_rread_async(wq, (uint64_t)lbuff_slot, snid, 0, ctx_offset, SLOT_SIZE);
 #else

@@ -56,6 +56,10 @@ static pthread_t rmc_thread;
 
 typedef void (async_handler)(uint8_t tid, wq_entry_t *head, void *owner);
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+    
 /**
  * VM infra only!!!
  * This func opens connection with kernel driver (KAL).
@@ -147,6 +151,9 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
  */
 inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
+#ifdef __cplusplus
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////// Inline methods implementation ///////////////////////////////////////

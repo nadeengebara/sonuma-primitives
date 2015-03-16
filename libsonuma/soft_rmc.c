@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <assert.h>
 
 static volatile bool rmc_active;
 static int fd;
@@ -60,12 +61,12 @@ int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
     dom_region_size = page_cnt * PAGE_SIZE;
     
     //allocate the pointer array for PGAS
-    fd = rmc_open("/root/node");
+    fd = rmc_open((char *)"/root/node");
     
     //first memory map local memory
-    *mem = mmap(NULL, page_cnt * PAGE_SIZE,
-		PROT_READ | PROT_WRITE,
-		MAP_SHARED, fd, 0);
+    *mem = (char *)mmap(NULL, page_cnt * PAGE_SIZE,
+			PROT_READ | PROT_WRITE,
+			MAP_SHARED, fd, 0);
     
     ctx[mynid] = *mem;
 
@@ -82,7 +83,9 @@ int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
 		return -1;
 	    }
 
-	    ctx[i] = mmap(NULL, page_cnt * PAGE_SIZE,
+	    printf("[soft_rmc] mapping memory of node %d\n", i);
+	    
+	    ctx[i] = (char *)mmap(NULL, page_cnt * PAGE_SIZE,
 			    PROT_READ | PROT_WRITE,
 			    MAP_SHARED, fd, 0);
 	    if(ctx[i] == MAP_FAILED) {
@@ -143,8 +146,6 @@ void *core_rmc_fun(void *arg) {
     
     uint8_t compl_idx;
 
-    uint64_t offset;
-
     printf("[soft_rmc] this node ID %d, number of nodes %d\n",
 	   qp_info->this_nid, qp_info->node_cnt);
     
@@ -155,35 +156,25 @@ void *core_rmc_fun(void *arg) {
 	;
 
     printf("[soft_rmc] RMC activated\n");
-    
+
     while(rmc_active) {
 	while (wq->q[local_wq_tail].SR == local_wq_SR) {
 #ifdef DEBUG_RMC
 	    printf("[soft_rmc] reading remote memory, offset = %lu\n",
 	    	   wq->q[local_wq_tail].offset);
-#endif
-	    //perform remote read
-	    offset = wq->q[local_wq_tail].offset;
-	    
-#ifdef DEBUG_RMC
-	    printf("[soft_rmc] pgas region ID %lu, offset %lu, size %lu\n",
-	    	   offset/dom_region_size, offset%dom_region_size,
-	    	   wq->q[local_wq_tail].length);
 
 	    printf("[soft_rmc] buffer address %lu\n",
 	    	   wq->q[local_wq_tail].buf_addr);
+
+	    printf("[soft_rmc] nid = %d; offset = %d, len = %d\n", wq->q[local_wq_tail].nid, wq->q[local_wq_tail].offset, wq->q[local_wq_tail].length);
 #endif
-	    //transfer data from remote memory
-	    //printf("[soft_rmc] node id %d; offset = %d\n", offset/dom_region_size, offset%dom_region_size);
 	    
-	    memcpy((uint8_t *) wq->q[local_wq_tail].buf_addr, 
-		   ctx[offset/dom_region_size] + (offset%dom_region_size),
+	    memcpy((uint8_t *)wq->q[local_wq_tail].buf_addr,
+		   (uint8_t *)(ctx[wq->q[local_wq_tail].nid] + (wq->q[local_wq_tail].offset)),
 		   wq->q[local_wq_tail].length);
 
 	    compl_idx = local_wq_tail;
 
-	    //printf("[soft_rmc] completed %d entry\n", compl_idx);
-	    
 	    local_wq_tail += 1;
 	    if (local_wq_tail >= MAX_NUM_WQ) {
 		local_wq_tail = 0;
