@@ -192,6 +192,7 @@ inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, voi
             DLogPerf("Checking CQ %"PRIu64" time...", op_count_completed);
 #endif
             cq_tail = cq->tail;
+
             handler(tid, &(wq->q[tid]), owner); //snovakov:changed wq_head to tid in wq->q[], also, passing address now
         }
     } while (wq->q[wq_head].valid);

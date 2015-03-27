@@ -82,6 +82,10 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     // ustiugov: WARNING: due to some Flexus caveats we need a whole page
     //*wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     *wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
+
+    //initialize the wq memory
+    memset(*wq_ptr, 0, sizeof(rmc_wq_t));
+    
     rmc_wq_t *wq = *wq_ptr;
     if (wq == NULL) {
         DLog("[sonuma] Work Queue could not be allocated.");

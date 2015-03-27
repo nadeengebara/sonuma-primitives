@@ -111,7 +111,7 @@ typedef struct wq_entry{
     //first double-word (8 bytes)
     uint8_t op;        //up to 64 soNUMA ops
     volatile uint8_t SR;        //sense reverse bit
-    uint8_t valid;    //set with a new WQ entry, unset when entry completed. Required for pipelining async ops
+    volatile uint8_t valid;    //set with a new WQ entry, unset when entry completed. Required for pipelining async ops
     uint64_t buf_addr;
     uint8_t cid;
     uint16_t nid;
