@@ -322,6 +322,8 @@ int rmc_init(int node_cnt, int this_nid) {
 #ifndef FLEXUS
     qp_info_t * qp_info = (qp_info_t *)malloc(sizeof(qp_info_t));
 
+    soft_rmc_connect(node_cnt, this_nid); //Initialize PGAS
+    
     qp_info->node_cnt = node_cnt;
     qp_info->this_nid = this_nid;
     

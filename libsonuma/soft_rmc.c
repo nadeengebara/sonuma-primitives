@@ -8,6 +8,9 @@
 #include <unistd.h>
 #include <assert.h>
 
+//server information
+static server_info_t *sinfo;
+
 static volatile bool rmc_active;
 static int fd;
 
@@ -61,7 +64,7 @@ int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
     dom_region_size = page_cnt * PAGE_SIZE;
     
     //allocate the pointer array for PGAS
-    fd = rmc_open((char *)"/root/node");
+    //fd = rmc_open((char *)"/root/node");
     
     //first memory map local memory
     *mem = (char *)mmap(NULL, page_cnt * PAGE_SIZE,
@@ -131,6 +134,196 @@ static int soft_rmc_ctx_destroy() {
     //close(fd);
     
     return 0;
+}
+
+static int net_init(int node_cnt, int this_nid, char *filename) {
+    FILE * fp;
+    char * line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    int i = 0;
+
+    printf("[network] net_init <- \n");
+    
+    sinfo = (server_info_t *)malloc(node_cnt * sizeof(server_info_t));
+
+    //retreive ID, IP, DOMID
+    fp = fopen(filename, "r");
+    if (fp == NULL)
+	exit(EXIT_FAILURE);
+
+    // get server information
+    while ((read = getline(&line, &len, fp)) != -1) {
+	printf("%s", line);
+	char * pch = strtok (line,":");
+	sinfo[i].nid = atoi(pch);
+	printf("ID: %d ", sinfo[i].nid);
+	pch = strtok(NULL, ":");
+	strcpy(sinfo[i].ip, pch);
+	printf("IP: %s ", sinfo[i].ip);
+	pch = strtok(NULL, ":");
+	sinfo[i].domid = atoi(pch);
+	printf("DOMID: %d\n", sinfo[i].domid);
+	i++;
+    }
+
+    printf("[network] net_init -> \n");
+    
+    return 0;
+}
+
+static int return_nid(char *ip) {
+  int i;
+  for(i=0; i<node_cnt; i++) {
+    if(strcmp(sinfo[i].ip, ip) == 0)
+      return i;
+  }
+
+  return -1;
+}
+
+int soft_rmc_connect(int node_cnt, int this_nid) {
+  int i, srv_idx;
+  int listen_fd; // errsv, errno;
+  struct sockaddr_in servaddr; //listen
+  struct sockaddr_in raddr; //connect, accept
+  int optval = 1;
+  char ip_tmp[16];
+  unsigned n;
+  
+  printf("[soft_rmc] soft_rmc_connect <- \n");
+
+  //allocate the pointer array for PGAS
+  fd = rmc_open((char *)"/root/node");
+    
+  net_init(node_cnt, this_nid, (char *)"/root/servers.txt");
+  
+  //listen
+  listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+  bzero(&servaddr,sizeof(servaddr));
+  servaddr.sin_family = AF_INET;
+  servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+  servaddr.sin_port=htons(PORT);
+    
+  if((setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval))) == -1) {
+    printf("Error on setsockopt\n");
+    exit(EXIT_FAILURE);
+  }
+
+  if(bind(listen_fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) == -1) {
+    fprintf(stderr, "Address binding error\n");
+    exit(EXIT_FAILURE);
+  }
+
+  if(listen(listen_fd, 1024) == -1) {
+    //fprintf(stderr, "Listen call error: %s\n", strerror(errno));
+    printf("[soft_rmc] Listen call error\n");
+    exit(EXIT_FAILURE);
+  }
+
+  ioctl_info_t info; // = (ioctl_info_t *)malloc(sizeof(ioctl_info_t));
+
+  for(i=0; i<node_cnt; i++) {
+    if(i != this_nid) {
+      //first connect to it
+      if(i > this_nid) {
+	printf("[soft_rmc] server accept..\n");
+	char *remote_ip;
+       
+	socklen_t slen = sizeof(raddr);
+
+       	sinfo[i].fd = accept(listen_fd, (struct sockaddr*)&raddr, &slen);
+
+	//retrieve nid of the remote node
+	remote_ip = inet_ntoa(raddr.sin_addr); //retreive remote address
+	
+	printf("[soft_rmc] Connect received from %s\n", remote_ip);
+	printf("[soft_rmc] Connect received on port %d\n", raddr.sin_port);
+	//receive the reference to the remote memory
+	while(1) {
+	  n = recv(sinfo[i].fd, (char *)&srv_idx, sizeof(int), 0);
+	  if(n == sizeof(int)) {
+	    printf("[soft_rmc] received the node_id\n");
+	    break;
+	  }
+	}
+
+	printf("[soft_rmc] server ID is %u\n", srv_idx);
+	//strcpy(ip_tmp, remote_ip);
+	/*
+	sprintf(ip_tmp, "%s", remote_ip);
+	printf("[soft_rmc] Connect received from %s\n", ip_tmp);
+	srv_idx = return_nid(ip_tmp);
+	if(srv_idx < 0) {
+	  printf("[soft_rmc] couldn't find server's IP\n");
+	  return -1;
+	}
+	*/
+      } else {
+	printf("[soft_rmc] server connect..\n");
+
+	memset(&raddr, 0, sizeof(raddr));
+	raddr.sin_family = AF_INET;
+	inet_aton(sinfo[i].ip, &raddr.sin_addr);
+	raddr.sin_port = htons(PORT);
+
+	sinfo[i].fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+	while(1) {
+	  if(connect(sinfo[i].fd, (struct sockaddr *)&raddr, sizeof(raddr)) == 0) {
+	    printf("[soft_rmc] Connected to %s\n", sinfo[i].ip);
+	    break;
+	  }
+	}
+	unsigned n = send(sinfo[i].fd, (char *)&this_nid, sizeof(int), 0); //MSG_DONTWAIT
+	if(n < sizeof(int)) {
+	  printf("[soft_rmc] ERROR: couldn't send the node_id\n");
+	  //return -1;
+	}
+
+	srv_idx = i;
+      }
+
+      //first get the reference for this domain
+      info.op = GETREF;
+      info.node_id = srv_idx;
+      info.domid = sinfo[srv_idx].domid;
+      if(ioctl(fd, 0, (void *)&info) == -1) {
+	printf("[soft_rmc] failed to unmap a remote region\n");
+	return -1;
+      }
+
+      //send the reference to the local memory
+      unsigned n = send(sinfo[srv_idx].fd, (char *)&info.desc_gref, sizeof(int), 0); //MSG_DONTWAIT
+      if(n < sizeof(int)) {
+	printf("[soft_rmc] ERROR: couldn't send the grant reference\n");
+	return -1;
+      }
+      
+      printf("[soft_rmc] grant reference sent: %u\n", info.desc_gref);
+
+      //receive the reference to the remote memory
+      while(1) {
+	n = recv(sinfo[srv_idx].fd, (char *)&info.desc_gref, sizeof(int), 0);
+	if(n == sizeof(int)) {
+	  printf("[soft_rmc] received the grant reference\n");
+	  break;
+	}
+      }
+	
+      printf("[soft_rmc] grant reference sent: %u\n", info.desc_gref);
+    
+      //put the ref for this domain
+      info.op = PUTREF;
+      if(ioctl(fd, 0, (void *)&info) == -1) {
+	printf("[soft_rmc] failed to unmap a remote region\n");
+	return -1;
+      }
+    }    
+  } //for
+
+  return 0;
 }
 
 void *core_rmc_fun(void *arg) {
