@@ -34,6 +34,8 @@
 //           phase that impacts the measurements. Do not enable during experiments!
 //#define DEBUG_FLEXUS_STATS
 
+//#define FAKE_READS
+
 #ifdef DEBUG
 #define DLog(M, ...) fprintf(stdout, "DEBUG %s:%d: " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
 #else
@@ -51,6 +53,8 @@
 extern uint64_t op_count_issued;
 extern uint64_t op_count_completed;
 #endif
+
+//uint64_t  call_magic_2_64(uint64_t son_function, uint64_t arg1, uint64_t arg2);
 
 static pthread_t rmc_thread;
 
@@ -253,7 +257,9 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
     DLogPerf("lbuff_slot: %"PRIu64" snid: %u ctx_id: %lu ctx_offset %"PRIu64" length: %"PRIu64, lbuff_slot, snid, ctx_id, ctx_offset, length);
 
     length = length / BLOCK_SIZE; // number of cache lines
+//#ifndef FAKE_READS
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+//#endif
 
 #ifdef DEBUG_FLEXUS_STATS
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
@@ -270,9 +276,13 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 
     cq_tail = cq->tail;
 
+//#ifndef FAKE_READS
     // wait for a completion of the entry
     while(cq->q[cq_tail].SR != cq->SR) {
     }
+//#else
+//    memset( (void *)lbuff_slot, 0, length*BLOCK_SIZE);
+//#endif
 
     // mark the entry as invalid, i.e. completed
     wq->q[cq->q[cq_tail].tid].valid = 0;

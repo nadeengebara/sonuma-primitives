@@ -88,6 +88,7 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     //*wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     *wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
     rmc_wq_t *wq = *wq_ptr;
+    memset(wq, 0, sizeof(PAGE_SIZE));
     if (wq == NULL) {
         DLog("[sonuma] Work Queue could not be allocated.");
         return -1;
@@ -278,7 +279,7 @@ void flexus_signal_all_set(int id) {
         call_magic_2_64(1, ALL_SET, id);
         was_called[id] = 1;
     } else {
-        DLog("[sonuma] (ALL_SET) magic call with ID=%d won't be called more than once.", id);
+        //DLog("[sonuma] (ALL_SET) magic call with ID=%d won't be called more than once.", id);
     }
 #else
     DLog("[sonuma] flexus_signal_all_set called in VM mode. Do nothing.");
