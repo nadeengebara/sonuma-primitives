@@ -51,14 +51,15 @@ typedef struct ioctl_info {
   int desc_gref;
 } ioctl_info_t;
 
-//the reference structure we use to exchange information about remote memory
-/*
-typedef struct memory_region_reference {
-    unsigned int num_pages;
-    int grefs[MAX_REGION_PAGES];
-    int ref_gref;
-} memory_region_reference_t;
-*/
+typedef uintptr_t nam_version_t;
+
+struct nam_obj_header {
+  nam_version_t version;
+};
+
+#define HW_OCC
+#define OBJ_COUNT 2
+
 //#define DEBUG_RMC
 
 //RMC thread

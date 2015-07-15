@@ -154,7 +154,7 @@ static int net_init(int node_cnt, int this_nid, char *filename) {
 
     // get server information
     while ((read = getline(&line, &len, fp)) != -1) {
-	printf("%s", line);
+      //printf("%s", line);
 	char * pch = strtok (line,":");
 	sinfo[i].nid = atoi(pch);
 	printf("ID: %d ", sinfo[i].nid);
@@ -172,23 +172,12 @@ static int net_init(int node_cnt, int this_nid, char *filename) {
     return 0;
 }
 
-static int return_nid(char *ip) {
-  int i;
-  for(i=0; i<node_cnt; i++) {
-    if(strcmp(sinfo[i].ip, ip) == 0)
-      return i;
-  }
-
-  return -1;
-}
-
 int soft_rmc_connect(int node_cnt, int this_nid) {
   int i, srv_idx;
   int listen_fd; // errsv, errno;
   struct sockaddr_in servaddr; //listen
   struct sockaddr_in raddr; //connect, accept
   int optval = 1;
-  char ip_tmp[16];
   unsigned n;
   
   printf("[soft_rmc] soft_rmc_connect <- \n");
@@ -312,7 +301,7 @@ int soft_rmc_connect(int node_cnt, int this_nid) {
 	}
       }
 	
-      printf("[soft_rmc] grant reference sent: %u\n", info.desc_gref);
+      printf("[soft_rmc] grant reference received: %u\n", info.desc_gref);
     
       //put the ref for this domain
       info.op = PUTREF;
@@ -329,6 +318,8 @@ int soft_rmc_connect(int node_cnt, int this_nid) {
 void *core_rmc_fun(void *arg) {
     qp_info_t * qp_info = (qp_info_t *)arg;
 
+    int i;
+    
     //WQ ptrs
     uint8_t local_wq_tail = 0;
     uint8_t local_wq_SR = 1;
@@ -338,7 +329,10 @@ void *core_rmc_fun(void *arg) {
     uint8_t local_cq_SR = 1;
     
     uint8_t compl_idx;
-
+    
+    nam_obj_header *header_src;
+    nam_obj_header *header_dst;
+    
     printf("[soft_rmc] this node ID %d, number of nodes %d\n",
 	   qp_info->this_nid, qp_info->node_cnt);
     
@@ -351,6 +345,7 @@ void *core_rmc_fun(void *arg) {
     printf("[soft_rmc] RMC activated\n");
 
     volatile wq_entry_t *curr;
+    unsigned object_offset;
     
     while(rmc_active) {
 	while (wq->q[local_wq_tail].SR == local_wq_SR) {
@@ -365,9 +360,24 @@ void *core_rmc_fun(void *arg) {
 #endif
 	    curr = &(wq->q[local_wq_tail]);
 
+	    //HW OCC implementation
+#ifdef HW_OCC
+	    for(i = 0; i < OBJ_COUNT; i++) {
+	      do {
+		object_offset = i * (curr->length/OBJ_COUNT);
+		memcpy((uint8_t *)(curr->buf_addr + object_offset),
+		       ctx[curr->nid] + curr->offset + object_offset,
+		       curr->length/OBJ_COUNT);
+		header_src = (nam_obj_header *)(ctx[curr->nid] + curr->offset + object_offset);
+		header_dst = (nam_obj_header *)(curr->buf_addr + object_offset);
+	      } while(header_src->version != header_dst->version);
+	    }
+#else
+	    //old version w/o HW OCC
 	    memcpy((uint8_t *)curr->buf_addr,
 		   ctx[curr->nid] + curr->offset,
 		   curr->length);
+#endif
 	    
 	    compl_idx = local_wq_tail;
 
