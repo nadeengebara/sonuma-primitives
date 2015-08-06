@@ -1,6 +1,6 @@
 #@author snovakov
 SHELL = /bin/sh
-CC    = g++
+CC    = g++-4.7
 
 CFLAGS       = -fPIC -Wall -O3
 

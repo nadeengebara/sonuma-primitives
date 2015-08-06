@@ -25,6 +25,8 @@ static int dom_region_size;
 static volatile rmc_wq_t *wq = NULL;
 static volatile rmc_cq_t *cq = NULL;
 
+char *local_mem_region;
+
 int soft_rmc_wq_reg(rmc_wq_t *qp_wq) {
     if((qp_wq == NULL) || (wq != NULL))
 	return -1;
@@ -59,7 +61,7 @@ static int rmc_open(char *shm_name) {
 int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
     ioctl_info_t info; 
     int i;
-
+    
     printf("[soft_rmc] soft_rmc_alloc_ctx ->\n");
     dom_region_size = page_cnt * PAGE_SIZE;
     
@@ -67,9 +69,12 @@ int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
     //fd = rmc_open((char *)"/root/node");
     
     //first memory map local memory
+    /*
     *mem = (char *)mmap(NULL, page_cnt * PAGE_SIZE,
 			PROT_READ | PROT_WRITE,
 			MAP_SHARED, fd, 0);
+    */
+    *mem = local_mem_region; //snovakov: this is allocation upon connect
     
     ctx[mynid] = *mem;
 
@@ -184,7 +189,34 @@ int soft_rmc_connect(int node_cnt, int this_nid) {
 
   //allocate the pointer array for PGAS
   fd = rmc_open((char *)"/root/node");
-    
+
+  //snovakov: first allocate memory
+  unsigned long *ctxl;
+  unsigned long dom_region_size = MAX_REGION_PAGES * PAGE_SIZE;
+  
+  int fd_mem = open("/dev/zero", O_RDWR);
+  local_mem_region = (char *)mmap(0, dom_region_size*sizeof(char), PROT_READ | PROT_WRITE,
+			MAP_SHARED, fd_mem, 0);
+
+  mlock(local_mem_region, dom_region_size);
+  
+  ctxl = (unsigned long *)local_mem_region;
+
+  //snovakov:need to do this to fault the pages into memory
+  for(i=0; i<(dom_region_size*sizeof(char))/8; i++) {
+    ctxl[i] = 0;
+  }
+
+  ioctl_info_t info;
+  info.op = MR_ALLOC;
+  info.ctx = (unsigned long)local_mem_region;
+  
+  if(ioctl(fd, 0, &info) == -1) {
+    perror("kal ioctl failed");
+    return -1;
+  }
+  //
+  
   net_init(node_cnt, this_nid, (char *)"/root/servers.txt");
   
   //listen
@@ -211,7 +243,7 @@ int soft_rmc_connect(int node_cnt, int this_nid) {
     exit(EXIT_FAILURE);
   }
 
-  ioctl_info_t info; // = (ioctl_info_t *)malloc(sizeof(ioctl_info_t));
+  //ioctl_info_t info; // = (ioctl_info_t *)malloc(sizeof(ioctl_info_t));
 
   for(i=0; i<node_cnt; i++) {
     if(i != this_nid) {
@@ -346,6 +378,22 @@ void *core_rmc_fun(void *arg) {
 
     volatile wq_entry_t *curr;
     unsigned object_offset;
+
+    cpu_set_t cpuset;
+    pthread_t thread;
+    int s;
+    
+    thread = pthread_self();
+
+    /* Set affinity mask to include CPUs 0 to 7 */
+
+    CPU_ZERO(&cpuset);
+
+    CPU_SET(1, &cpuset);
+
+    s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+    if (s != 0)
+      printf("[soft_rmc] RMC not pinned\n");
     
     while(rmc_active) {
 	while (wq->q[local_wq_tail].SR == local_wq_SR) {
