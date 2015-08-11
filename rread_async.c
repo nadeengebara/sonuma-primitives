@@ -54,7 +54,7 @@ int main(int argc, char **argv)
     for(i=0; i<(buf_size*sizeof(uint8_t)); i++) {
         lbuff[i] = 0;
         counter = i*sizeof(uint8_t)/PAGE_SIZE;
-        call_magic_2_64((uint64_t)&(lbuff[i]), BUFFER, counter);
+        PASS2FLEXUS_CONFIG((uint64_t)&(lbuff[i]), BUFFER, counter);
     }
 
     //context buffer - exposed to remote nodes
@@ -71,11 +71,11 @@ int main(int argc, char **argv)
     counter = 0;
     //initialize the context buffer
     ctx[0] = 123;
-    call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0);
+    PASS2FLEXUS_CONFIG((uint64_t)ctx, CONTEXTMAP, 0);
     for(i=0; i<ctx_size; i+=PAGE_SIZE) {
         *(ctx + i) = 123;
         counter++;
-        call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, counter);
+        PASS2FLEXUS_CONFIG((uint64_t)&(ctx[i]), CONTEXT, counter);
     }
     //}
     //allocate queues
@@ -103,7 +103,7 @@ int main(int argc, char **argv)
     for(i=0; i<MAX_NUM_WQ; i++) {
         wq->q[i].SR = 0;
     }
-    call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
+    PASS2FLEXUS_CONFIG((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
 
     //fprintf(stdout, "Starting address of wq is %"PRIu64"\nAddresses of first entry's fields are:\n\op=%"PRIu64"\nnid=%"PRIu64"\ntid=%"PRIu64"\ncid=%"PRIu64"\noffset=%"PRIu64"\nlength=%"PRIu64"\nbuff=%"PRIu64, (uint64_t)wq, (uint64_t)&(wq->q[0].op), (uint64_t)&(wq->q[0].nid), (uint64_t)&(wq->q[0].tid), (uint64_t)&(wq->q[0].cid), (uint64_t)&(wq->q[0].offset), (uint64_t)&(wq->q[0].length), (uint64_t)&(wq->q[0].buff));
     /* fprintf(stdout, "Starting address of wq is %"PRIu64"\n", (uint64_t)wq);
@@ -120,15 +120,15 @@ int main(int argc, char **argv)
     for(i=0; i<MAX_NUM_WQ; i++) {
         cq->q[i].SR = 0;
     }
-    call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
+    PASS2FLEXUS_CONFIG((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
     //  fprintf(stdout, "Starting address of cq is %"PRIu64"\n", (uint64_t)cq);
 
     //register ctx and buffer sizes, needed for the flexi version of the app
-    call_magic_2_64(42, BUFFER_SIZE, buf_size);
-    call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
+    PASS2FLEXUS_CONFIG(42, BUFFER_SIZE, buf_size);
+    PASS2FLEXUS_CONFIG(42, CONTEXT_SIZE, ctx_size);
 
     fprintf(stdout,"Init done! Will execute %"PRIu64" WQ operations - ASYNC!\n NOTE: This app is in FLEXI mode! (snid = %d)\n", num_iter, snid);
-    call_magic_2_64(1, ALL_SET, 1);
+    PASS2FLEXUS_CONFIG(1, ALL_SET, 1);
 
     //uB kernel
     uint8_t wq_head, cq_tail;
@@ -151,7 +151,7 @@ int main(int argc, char **argv)
                     cq->tail = 0;
                     cq->SR ^= 1;
                 }
-                call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
+                PASS2FLEXUS_CONFIG(tid, WQENTRYDONE, op_count_completed);
                 cq_tail = cq->tail;
             }
         } while (wq->q[wq_head].valid);
@@ -164,7 +164,7 @@ int main(int argc, char **argv)
 
         create_wq_entry(RMC_READ, wq->SR, 0, snid, (uint64_t)lbuff_slot, ctx_offset, 42, (uint64_t)&(wq->q[wq_head]));
         op_count_issued++;
-        call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+        PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
 
         wq->head =  wq->head + 1;
         if (wq->head >= MAX_NUM_WQ) {

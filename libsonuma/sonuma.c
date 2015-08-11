@@ -111,7 +111,7 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
 
 #ifdef FLEXUS
     DLog("[sonuma] Call Flexus magic call (WQUEUE).");
-    call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
+    PASS2FLEXUS_CONFIG((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_wq called in VM mode.");
     //posix_memalign((void **)wq, PAGE_SIZE, sizeof(rmc_wq_t));
@@ -129,6 +129,7 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     //*cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
     *cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
     rmc_cq_t *cq = *cq_ptr;
+    memset(cq, 0, sizeof(PAGE_SIZE));
     if (cq == NULL) {
         DLog("[sonuma] Completion Queue could not be allocated.");
         return -1;
@@ -149,7 +150,7 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     }
 #ifdef FLEXUS
     DLog("[sonuma] Call Flexus magic call (CQUEUE).");
-    call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
+    PASS2FLEXUS_CONFIG((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_cq called in VM mode.");
     //posix_memalign((void **)cq, PAGE_SIZE, sizeof(rmc_cq_t));
@@ -164,7 +165,7 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
 
 int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
     assert(buff_ptr != NULL);
-    uint8_t *buff = *buff_ptr;
+    uint8_t *buff = (void*)( ((uintptr_t)(*buff_ptr)) & PAGE_BITS );
 #ifdef FLEXUS
     int i, retcode;
     uint64_t buff_size = num_pages * PAGE_SIZE;
@@ -182,14 +183,22 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
         buff[i] = 0;
         if ( (i % PAGE_SIZE) == 0) {
             counter = i*sizeof(uint8_t)/PAGE_SIZE;
+            /*
+            retcode = mlock((void *)&(buff[i]), buff_size * sizeof(uint8_t));
+            if (retcode != 0) {
+                DLog("[sonuma] Local buffer %p mlock returned %d (buffer size = %"PRIu64" bytes)", *buff_ptr, retcode, buff_size);
+            } else {
+                DLog("[sonuma] Local buffer was pinned successfully.");
+            }
+            */
             // map the buffer's pages in Flexus
-            call_magic_2_64((uint64_t)&(buff[i] ), BUFFER, counter);
+            PASS2FLEXUS_CONFIG((uint64_t)&(buff[i] ), BUFFER, counter);
         }
     }
    
 #ifdef FLEXI_MODE
     DLog("[sonuma] Call Flexus magic call (BUFFER_SIZE).");
-    call_magic_2_64(42, BUFFER_SIZE, buff_size); // register local buffer
+    PASS2FLEXUS_CONFIG(42, BUFFER_SIZE, buff_size); // register local buffer
 #endif /* FLEXI_MODE */
 
 #else
@@ -236,16 +245,16 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
         *(ctx + i) = temp;
 #endif
         if (i == 0)
-            call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
+            PASS2FLEXUS_CONFIG((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
         if ( (i % PAGE_SIZE) == 0) {
             // map the context's pages in Flexus
-            call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, i);
+            PASS2FLEXUS_CONFIG((uint64_t)&(ctx[i]), CONTEXT, i);
         }
     }
 
 #ifdef FLEXI_MODE
     DLog("[sonuma] Call Flexus magic call (CONTEXT_SIZE).");
-    call_magic_2_64(42, CONTEXT_SIZE, ctx_size); // register ctx
+    PASS2FLEXUS_CONFIG(42, CONTEXT_SIZE, ctx_size); // register ctx
 #endif /* FLEXI_MODE */
 
 #else // Linux, not flexus
@@ -276,7 +285,7 @@ void flexus_signal_all_set(int id) {
 #endif
         
         DLog("[sonuma] Call Flexus magic call (ALL_SET).");
-        call_magic_2_64(1, ALL_SET, id);
+        PASS2FLEXUS_CONFIG(1, ALL_SET, id);
         was_called[id] = 1;
     } else {
         //DLog("[sonuma] (ALL_SET) magic call with ID=%d won't be called more than once.", id);

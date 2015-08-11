@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h> // memset func
 
 #include "RMCdefines.h"
 
@@ -27,6 +28,24 @@
 #endif
 
 #define DEBUG
+//#define APP_DEBUG
+
+// ustiugov: these macroses are needed to distinguish
+//           different purposes of communication with FLEXUS
+#define PASS2FLEXUS_CONFIG(...)     call_magic_2_64(__VA_ARGS__)
+// ustiugov: for measuring time intervals inside the app
+#define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
+
+//#define PASS2FLEXUS_DEBUG1(...)     if (mes_phase == true) { call_magic_2_64(__VA_ARGS__); }
+#define PASS2FLEXUS_DEBUG1(...)
+#define PASS2FLEXUS_DEBUG2(...)     call_magic_2_64(__VA_ARGS__);
+
+#ifdef APP_DEBUG
+#define PASS2FLEXUS_DEBUG(...)      call_magic_2_64(__VA_ARGS__)
+#else
+#define PASS2FLEXUS_DEBUG(...)
+#endif
+
 // ustiugov: WARNING!!! DEBUG_PERF enables I/O in performance regions (it uses DLogPerf)!
 //           Do not enable during experiments!
 //#define DEBUG_PERF
@@ -53,8 +72,6 @@
 extern uint64_t op_count_issued;
 extern uint64_t op_count_completed;
 #endif
-
-//uint64_t  call_magic_2_64(uint64_t son_function, uint64_t arg1, uint64_t arg2);
 
 static pthread_t rmc_thread;
 
@@ -187,7 +204,7 @@ inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, voi
 
 #ifdef DEBUG_FLEXUS_STATS
             DLogPerf("[sonuma] Call Flexus magic call (WQENTRYDONE).");
-            call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
+            PASS2FLEXUS_CONFIG(tid, WQENTRYDONE, op_count_completed);
             DLogPerf("Checking CQ %"PRIu64" time...", op_count_completed);
 #endif
             cq_tail = cq->tail;
@@ -211,7 +228,7 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
     op_count_issued++;
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
     DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
-    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
 #endif
 
 #else // Linux below
@@ -249,7 +266,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 #ifdef FLEXUS
 
 #ifdef DEBUG_FLEXUS_STATS
-    call_magic_2_64(wq_head, NEWWQENTRY_START, op_count_issued);
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY_START, op_count_issued);
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
     op_count_issued++;
 #endif
@@ -262,7 +279,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 //#endif
 
 #ifdef DEBUG_FLEXUS_STATS
-    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
 #endif
 
 #endif /* FLEXUS */
@@ -288,7 +305,7 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
     wq->q[cq->q[cq_tail].tid].valid = 0;
 #ifdef DEBUG_FLEXUS_STATS
     op_count_completed++;
-    call_magic_2_64(cq_tail, WQENTRYDONE, op_count_completed);
+    PASS2FLEXUS_CONFIG(cq_tail, WQENTRYDONE, op_count_completed);
 #endif
     cq->tail = cq->tail + 1;
 
@@ -321,7 +338,7 @@ inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx
     op_count_issued++;
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
     DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
-    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
 #endif
 
     wq->head =  wq->head + 1;

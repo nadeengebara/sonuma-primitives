@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     for(i=0; i<(buf_size*sizeof(uint8_t)); i++) {
         lbuff[i] = 0;
         counter = i*sizeof(uint8_t)/PAGE_SIZE;
-        call_magic_2_64((uint64_t)&(lbuff[i]), BUFFER, counter);
+        PASS2FLEXUS_CONFIG((uint64_t)&(lbuff[i]), BUFFER, counter);
     }
 
     //context buffer - exposed to remote nodes
@@ -72,11 +72,11 @@ int main(int argc, char **argv)
     counter = 0;
     //initialize the context buffer
     ctxbuff[0] = 123;
-    call_magic_2_64((uint64_t)ctxbuff, CONTEXTMAP, 0);
+    PASS2FLEXUS_CONFIG((uint64_t)ctxbuff, CONTEXTMAP, 0);
     for(i=0; i<ctx_size; i+=PAGE_SIZE) {
         *(ctxbuff + i) = 123;
         counter++;
-        call_magic_2_64((uint64_t)&(ctxbuff[i]), CONTEXT, counter);
+        PASS2FLEXUS_CONFIG((uint64_t)&(ctxbuff[i]), CONTEXT, counter);
     } 
     //fprintf(stdout, "Allocated %d pages for the context\n", counter);
     //}
@@ -110,7 +110,7 @@ int main(int argc, char **argv)
     for(i=0; i<MAX_NUM_WQ; i++) {
         wq->q[i].SR = 0;
     }
-    call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
+    PASS2FLEXUS_CONFIG((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
 
     //  fprintf(stdout, "Starting address of wq is %"PRIu64"\nAddresses of first entry's fields are:\nop=%"PRIu64"\nnid=%"PRIu64"\ntid=%"PRIu64"\ncid=%"PRIu64"\noffset=%"PRIu64"\nlength=%"PRIu64"\nbuff=%"PRIu64, (uint64_t)wq, (uint64_t)&(wq->q[0].op), (uint64_t)&(wq->q[0].nid), (uint64_t)&(wq->q[0].tid), (uint64_t)&(wq->q[0].cid), (uint64_t)&(wq->q[0].offset), (uint64_t)&(wq->q[0].length), (uint64_t)&(wq->q[0].buff));
     /*
@@ -127,14 +127,14 @@ int main(int argc, char **argv)
     for(i=0; i<MAX_NUM_WQ; i++) {
         cq->q[i].SR = 0;
     }
-    call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
+    PASS2FLEXUS_CONFIG((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
 
     //register ctx and buffer sizes, needed for the flexi version of the app
-    call_magic_2_64(42, BUFFER_SIZE, buf_size);
-    call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
+    PASS2FLEXUS_CONFIG(42, BUFFER_SIZE, buf_size);
+    PASS2FLEXUS_CONFIG(42, CONTEXT_SIZE, ctx_size);
 
     fprintf(stdout,"Init done! Will execute %"PRIu64" WQ operations - SYNC!\n NOTE: This app is in FLEXI mode!", num_iter);
-    call_magic_2_64(1, ALL_SET, 1);
+    PASS2FLEXUS_CONFIG(1, ALL_SET, 1);
 
     //uB kernel
     uint8_t wq_head; 
@@ -154,10 +154,10 @@ int main(int argc, char **argv)
         wq_head = wq->head;
         //fprintf(stdout, "wq_head is %d, and Queue Entry that was just enqueued has: \n op = %d\n, SR = %d\n, cid = %d\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = %ld\n", wq_head, wq->q[wq_head].op, wq->q[wq_head].SR, wq->q[wq_head].cid, wq->q[wq_head].nid, wq->q[wq_head].buf_addr, wq->q[wq_head].offset, wq->q[wq_head].length);
         //fprintf(stdout, "About to write a WQ entry with \n  op = %d\n, SR = %d\n, cid = 0\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = 42\n", RMC_READ, wq->SR, snid, lbuff_slot, ctx_offset);
-        call_magic_2_64(wq_head, NEWWQENTRY_START, op_count);
+        PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY_START, op_count);
         create_wq_entry(RMC_READ, wq->SR, 0, snid, (uint64_t)lbuff_slot, ctx_offset, 42, (uint64_t)&(wq->q[wq_head]));
         // create_wq_entry(1, 0, 3, 4, 5, 6, 7, (uint64_t)&(wq->q[wq_head]));
-        call_magic_2_64(wq_head, NEWWQENTRY, op_count);
+        PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count);
 
         //  fprintf(stdout, "wq_head is %d, and Queue Entry that was just enqueued has: \n op = %d\n, SR = %d\n, cid = %d\n, nid = %d\n, buf_addr=%ld\n, offset=%ld\n, length = %ld, valid = %d\n", wq_head, wq->q[wq_head].op, wq->q[wq_head].SR, wq->q[wq_head].cid, wq->q[wq_head].nid, wq->q[wq_head].buf_addr, wq->q[wq_head].offset, wq->q[wq_head].length, wq->q[wq_head].valid);
 
@@ -180,7 +180,7 @@ int main(int argc, char **argv)
 #ifdef version4_1
         wq->q[cq->q[cq_tail].tid].valid = 0;
 #endif
-        call_magic_2_64(cq_tail, WQENTRYDONE, op_count);
+        PASS2FLEXUS_CONFIG(cq_tail, WQENTRYDONE, op_count);
 
         //  lbuff_slot = (uint8_t*)wq->q[cq->q[cq_tail].tid].buf_addr;
         //  fprintf(stdout,"Reading local buffer. Value: %"PRIu8"\n", *lbuff_slot);
