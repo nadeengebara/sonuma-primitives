@@ -381,7 +381,7 @@ void *core_rmc_fun(void *arg) {
 
     cpu_set_t cpuset;
     pthread_t thread;
-    int s;
+    int s, abort_cnt;
     
     thread = pthread_self();
 
@@ -411,13 +411,17 @@ void *core_rmc_fun(void *arg) {
 	    //HW OCC implementation
 #ifdef HW_OCC
 	    for(i = 0; i < OBJ_COUNT; i++) {
+	      abort_cnt = 0;
 	      do {
+		if(abort_cnt > 0)
+		  printf("[abort detected; abort_cnt = %u\n", abort_cnt);
 		object_offset = i * (curr->length/OBJ_COUNT);
 		memcpy((uint8_t *)(curr->buf_addr + object_offset),
 		       ctx[curr->nid] + curr->offset + object_offset,
 		       curr->length/OBJ_COUNT);
 		header_src = (nam_obj_header *)(ctx[curr->nid] + curr->offset + object_offset);
 		header_dst = (nam_obj_header *)(curr->buf_addr + object_offset);
+		abort_cnt++;
 	      } while(header_src->version != header_dst->version);
 	    }
 #else
