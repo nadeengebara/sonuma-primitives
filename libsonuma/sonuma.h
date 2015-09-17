@@ -52,7 +52,7 @@ extern uint64_t op_count_issued;
 extern uint64_t op_count_completed;
 #endif
 
-static pthread_t rmc_thread;
+//static pthread_t rmc_thread;
 
 typedef void (async_handler)(uint8_t tid, wq_entry_t *head, void *owner);
 
@@ -288,12 +288,15 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
         wq->SR ^= 1;
     }
 
+    //printf("[sonuma] scheduled remote read\n");
     //cq_tail = cq->tail;
 
     // wait for a completion of the entry
     while(cq->q[cq_tail].SR != cq->SR) {
     }
 
+    //printf("[sonuma] remote read completed\n");
+    
     // mark the entry as invalid, i.e. completed
     wq->q[cq->q[cq_tail].tid].valid = 0;
 #ifdef DEBUG_FLEXUS_STATS

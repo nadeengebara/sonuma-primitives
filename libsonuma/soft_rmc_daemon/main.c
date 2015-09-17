@@ -1,13 +1,20 @@
 // Stanko Novakovic
 // All-software implementation of RMC
+// daemon
 
-#include "soft_rmc.h"
+#include "../soft_rmc.h"
 
 #include <stdbool.h>
 #include <sys/ioctl.h>
 #include <sys/shm.h>
 #include <unistd.h>
 #include <assert.h>
+
+#ifndef RMCD_DEBUG
+#define DLog(M, ...)
+#else
+#define DLog(M, ...) fprintf(stdout, "DEBUG %s:%d: " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#endif
 
 //server information
 static server_info_t *sinfo;
@@ -18,32 +25,134 @@ static int fd;
 //pgas - one context supported
 static char *ctx[MAX_NODE_CNT];
 
-//node info
-static int mynid, node_cnt;
-static int dom_region_size;
+static int node_cnt, this_nid;
 
-//queue pair info
-static volatile rmc_wq_t *wq = NULL;
-static volatile rmc_cq_t *cq = NULL;
+int alloc_wq(rmc_wq_t **qp_wq) {
+  int retcode, i;
+  FILE *f;
+  
+  int shmid = shmget(IPC_PRIVATE, PAGE_SIZE,
+			     SHM_R | SHM_W);
+  if(-1 != shmid) {
+    printf("[soft_rmc_daemon] shmget for WQ okay, shmid = %d\n", shmid);
+    *qp_wq = (rmc_wq_t *)shmat(shmid, NULL, 0);
 
-char *local_mem_region;
+    f = fopen("wq_ref.txt", "w");
+    fprintf(f, "%d", shmid);
+    fclose(f);
+  } else {
+    printf("[soft_rmc_daemon] shmget failed\n");
+  }
 
-int soft_rmc_wq_reg(rmc_wq_t *qp_wq) {
-    if((qp_wq == NULL) || (wq != NULL))
-	return -1;
+  rmc_wq_t *wq = *qp_wq; 
+  
+  if (wq == NULL) {
+    DLog("[sonuma] Work Queue could not be allocated.");
+    return -1;
+  }
+  
+  //initialize the wq memory
+  memset(wq, 0, sizeof(rmc_wq_t));
     
-    wq = qp_wq;
-    printf("[soft_rmc] work queue registered\n");
-    return 0;
+  retcode = mlock((void *)wq, PAGE_SIZE);
+  if(retcode != 0) {
+    DLog("[sonuma] WQueue mlock returned %d", retcode);
+    return -1;
+  } else {
+    DLog("[sonuma] WQ was pinned successfully.");
+  }
+
+  //setup work queue
+  wq->head = 0;
+  wq->SR = 1;
+
+  for(i=0; i<MAX_NUM_WQ; i++) {
+    wq->q[i].SR = 0;
+  }
+
+  return 0;
 }
 
-int soft_rmc_cq_reg(rmc_cq_t *qp_cq) {
-    if((qp_cq == NULL) || (cq != NULL))
-	return -1;
+int alloc_cq(rmc_cq_t **qp_cq) {
+  int retcode, i;
+  FILE *f;
+  
+  int shmid = shmget(IPC_PRIVATE, PAGE_SIZE,
+			     SHM_R | SHM_W);
+  if(-1 != shmid) {
+    printf("[soft_rmc_daemon] shmget for CQ okay, shmid = %d\n", shmid);
+    *qp_cq = (rmc_cq_t *)shmat(shmid, NULL, 0);
+
+    f = fopen("cq_ref.txt", "w");
+    fprintf(f, "%d", shmid);
+    fclose(f);
+  } else {
+    printf("[soft_rmc_daemon] shmget failed\n");
+  }
+
+  rmc_cq_t *cq = *qp_cq; 
+  
+  if (cq == NULL) {
+    DLog("[sonuma] Work Queue could not be allocated.");
+    return -1;
+  }
+  
+  //initialize the wq memory
+  memset(cq, 0, sizeof(rmc_cq_t));
     
-    cq = qp_cq;
-    printf("[soft_rmc] completion queue registered\n");
-    return 0;
+  retcode = mlock((void *)cq, PAGE_SIZE);
+  if(retcode != 0) {
+    DLog("[sonuma] WQueue mlock returned %d", retcode);
+    return -1;
+  } else {
+    DLog("[sonuma] WQ was pinned successfully.");
+  }
+
+  //setup work queue
+  cq->tail = 0;
+  cq->SR = 1;
+
+  for(i=0; i<MAX_NUM_WQ; i++) {
+    cq->q[i].SR = 0;
+  }
+
+  return 0;
+}
+
+int local_buf_alloc(char **mem) {
+  int retcode;
+  FILE *f;
+  
+  int shmid = shmget(IPC_PRIVATE, PAGE_SIZE,
+			     SHM_R | SHM_W);
+  if(-1 != shmid) {
+    printf("[soft_rmc_daemon] shmget for local buffer okay, shmid = %d\n", shmid);
+    *mem = (char *)shmat(shmid, NULL, 0);
+
+    f = fopen("local_buf_ref.txt", "w");
+    fprintf(f, "%d", shmid);
+    fclose(f);
+  } else {
+    printf("[soft_rmc_daemon] shmget failed\n");
+  }
+
+  if (*mem == NULL) {
+    DLog("[sonuma] Local buffer could have not be allocated.");
+    return -1;
+  }
+  
+  //initialize the wq memory
+  memset(*mem, 0, PAGE_SIZE);
+    
+  retcode = mlock((void *)*mem, PAGE_SIZE);
+  if(retcode != 0) {
+    DLog("[sonuma] WQueue mlock returned %d", retcode);
+    return -1;
+  } else {
+    DLog("[sonuma] WQ was pinned successfully.");
+  }
+
+  return 0;
 }
 
 static int rmc_open(char *shm_name) {
@@ -58,68 +167,6 @@ static int rmc_open(char *shm_name) {
     return fd;
 }
 
-//allocates local memory and maps remote memory 
-int soft_rmc_ctx_alloc(char **mem, unsigned page_cnt) {
-    ioctl_info_t info; 
-    int i;
-    
-    printf("[soft_rmc] soft_rmc_alloc_ctx ->\n");
-    dom_region_size = page_cnt * PAGE_SIZE;
-    
-    //allocate the pointer array for PGAS
-    //fd = rmc_open((char *)"/root/node");
-    
-    //first memory map local memory
-    /*
-    *mem = (char *)mmap(NULL, page_cnt * PAGE_SIZE,
-			PROT_READ | PROT_WRITE,
-			MAP_SHARED, fd, 0);
-    */
-    *mem = local_mem_region; //snovakov: this is allocation upon connect
-    
-    ctx[mynid] = *mem;
-
-    printf("[soft_rmc] registered local memory\n");
-    printf("[soft_rmc] registering remote memory, number of remote nodes %d\n", node_cnt-1);
-
-    info.op = RMAP;
-    //map the rest of pgas
-    for(i=0; i<node_cnt; i++) {
-	if(i != mynid) {
-	    info.node_id = i;
-	    if(ioctl(fd, 0, (void *)&info) == -1) {
-		printf("[soft_rmc] ioctl failed\n");
-		return -1;
-	    }
-
-	    printf("[soft_rmc] mapping memory of node %d\n", i);
-	    
-	    ctx[i] = (char *)mmap(NULL, page_cnt * PAGE_SIZE,
-			    PROT_READ | PROT_WRITE,
-			    MAP_SHARED, fd, 0);
-	    if(ctx[i] == MAP_FAILED) {
-		close(fd);
-		perror("[soft_rmc] error mmapping the file");
-		exit(EXIT_FAILURE);
-	    }
-
-#ifdef DEBUG_RMC
-	    //for testing purposes
-	    for(j=0; j<(dom_region_size)/sizeof(unsigned long); j++)
-		printf("%lu\n", *((unsigned long *)ctx[i]+j));
-#endif
-	}
-    }
-    
-    printf("[soft_rmc] context successfully created, %lu bytes\n",
-	   (unsigned long)page_cnt * PAGE_SIZE * node_cnt);
-
-    //activate the RMC
-    rmc_active = true;
-    
-    return 0;
-}
-
 static int soft_rmc_ctx_destroy() {
     int i;
 
@@ -127,7 +174,7 @@ static int soft_rmc_ctx_destroy() {
 
     info.op = RUNMAP;
     for(i=0; i<node_cnt; i++) {
-	if(i != mynid) {
+	if(i != this_nid) {
 	    info.node_id = i;
 	    if(ioctl(fd, 0, (void *)&info) == -1) {
 		printf("[soft_rmc] failed to unmap a remote region\n");
@@ -178,63 +225,114 @@ static int net_init(int node_cnt, int this_nid, char *filename) {
     return 0;
 }
 
-int soft_rmc_connect(int node_cnt, int this_nid) {
+//allocates local memory and maps remote memory 
+int ctx_map(char **mem, unsigned page_cnt) {
+    ioctl_info_t info; 
+    int i;
+    
+    printf("[soft_rmc] soft_rmc_alloc_ctx ->\n");
+    unsigned long dom_region_size = page_cnt * PAGE_SIZE;
+    
+    ctx[this_nid] = *mem;
+
+    printf("[soft_rmc] registered local memory\n");
+    printf("[soft_rmc] registering remote memory, number of remote nodes %d\n", node_cnt-1);
+
+    info.op = RMAP;
+
+    //map the rest of pgas
+    for(i=0; i<node_cnt; i++) {
+	if(i != this_nid) {
+	    info.node_id = i;
+	    if(ioctl(fd, 0, (void *)&info) == -1) {
+		printf("[soft_rmc] ioctl failed\n");
+		return -1;
+	    }
+
+	    printf("[soft_rmc] mapping memory of node %d\n", i);
+	    
+	    ctx[i] = (char *)mmap(NULL, page_cnt * PAGE_SIZE,
+			    PROT_READ | PROT_WRITE,
+			    MAP_SHARED, fd, 0);
+	    if(ctx[i] == MAP_FAILED) {
+		close(fd);
+		perror("[soft_rmc] error mmapping the file");
+		exit(EXIT_FAILURE);
+	    }
+
+#ifdef DEBUG_RMC
+	    //for testing purposes
+	    for(j=0; j<(dom_region_size)/sizeof(unsigned long); j++)
+		printf("%lu\n", *((unsigned long *)ctx[i]+j));
+#endif
+	}
+    }
+    
+    printf("[soft_rmc] context successfully created, %lu bytes\n",
+	   (unsigned long)page_cnt * PAGE_SIZE * node_cnt);
+
+    //activate the RMC
+    rmc_active = true;
+    
+    return 0;
+}
+
+int ctx_alloc_grant_map(char **mem, unsigned page_cnt) {
   int i, srv_idx;
   int listen_fd; // errsv, errno;
   struct sockaddr_in servaddr; //listen
   struct sockaddr_in raddr; //connect, accept
   int optval = 1;
   unsigned n;
+  FILE *f;
   
   printf("[soft_rmc] soft_rmc_connect <- \n");
 
   //allocate the pointer array for PGAS
   fd = rmc_open((char *)"/root/node");
 
-  //snovakov: first allocate memory
+  //first allocate memory
   unsigned long *ctxl;
-  unsigned long dom_region_size = MAX_REGION_PAGES * PAGE_SIZE;
+  unsigned long dom_region_size = page_cnt * PAGE_SIZE;
 
-  /*
-  int fd_mem = open("/dev/zero", O_RDWR);
-  local_mem_region = (char *)mmap(0, dom_region_size*sizeof(char), PROT_READ | PROT_WRITE,
-			MAP_SHARED, fd_mem, 0);
-  */
-  
-  //key_t key = 25;
   int shmid = shmget(IPC_PRIVATE, dom_region_size*sizeof(char), SHM_R | SHM_W);
   if(-1 != shmid) {
     printf("[soft_rmc] shmget okay, shmid = %d\n", shmid);
-    local_mem_region = (char *)shmat(shmid, NULL, 0);
+    *mem = (char *)shmat(shmid, NULL, 0);
+
+    f = fopen("ctx_ref.txt", "w");
+    fprintf(f, "%d", shmid);
+    fclose(f);
   } else {
     printf("[soft_rmc] shmget failed\n");
   }
 
-  if(local_mem_region != NULL) {
+  if(*mem != NULL) {
     printf("[soft_rmc] memory for the context allocated\n");
-    memset(local_mem_region, 0, dom_region_size);
-    mlock(local_mem_region, dom_region_size);
+    memset(*mem, 0, dom_region_size);
+    mlock(*mem, dom_region_size);
   }
   
   printf("[soft_rmc] managed to lock pages in memory\n");
   
-  ctxl = (unsigned long *)local_mem_region;
+  ctxl = (unsigned long *)*mem;
 
   //snovakov:need to do this to fault the pages into memory
   for(i=0; i<(dom_region_size*sizeof(char))/8; i++) {
     ctxl[i] = 0;
   }
 
+  //register this memory with the kernel driver
   ioctl_info_t info;
   info.op = MR_ALLOC;
-  info.ctx = (unsigned long)local_mem_region;
+  info.ctx = (unsigned long)*mem;
   
   if(ioctl(fd, 0, &info) == -1) {
     perror("kal ioctl failed");
     return -1;
   }
-  //
   
+  //initialize the network
   net_init(node_cnt, this_nid, (char *)"/root/servers.txt");
   
   //listen
@@ -260,8 +358,6 @@ int soft_rmc_connect(int node_cnt, int this_nid) {
     printf("[soft_rmc] Listen call error\n");
     exit(EXIT_FAILURE);
   }
-
-  //ioctl_info_t info; // = (ioctl_info_t *)malloc(sizeof(ioctl_info_t));
 
   for(i=0; i<node_cnt; i++) {
     if(i != this_nid) {
@@ -289,16 +385,6 @@ int soft_rmc_connect(int node_cnt, int this_nid) {
 	}
 
 	printf("[soft_rmc] server ID is %u\n", srv_idx);
-	//strcpy(ip_tmp, remote_ip);
-	/*
-	sprintf(ip_tmp, "%s", remote_ip);
-	printf("[soft_rmc] Connect received from %s\n", ip_tmp);
-	srv_idx = return_nid(ip_tmp);
-	if(srv_idx < 0) {
-	  printf("[soft_rmc] couldn't find server's IP\n");
-	  return -1;
-	}
-	*/
       } else {
 	printf("[soft_rmc] server connect..\n");
 
@@ -362,59 +448,70 @@ int soft_rmc_connect(int node_cnt, int this_nid) {
     }    
   } //for
 
+  //now memory map all the regions
+  ctx_map(mem, page_cnt);
+  
   return 0;
 }
 
-void *core_rmc_fun(void *arg) {
-    qp_info_t * qp_info = (qp_info_t *)arg;
+int main(int argc, char **argv) {
+  int i;
 
-    int i;
-    
-    //WQ ptrs
-    uint8_t local_wq_tail = 0;
-    uint8_t local_wq_SR = 1;
+  if(argc != 3) {
+    printf("[rmcd] incorrect number of arguments\n");
+    exit(1);
+  }
 
-    //CQ ptrs
-    uint8_t local_cq_head = 0;
-    uint8_t local_cq_SR = 1;
-    
-    uint8_t compl_idx;
-    
-    nam_obj_header *header_src;
-    nam_obj_header *header_dst;
-    
-    printf("[soft_rmc] this node ID %d, number of nodes %d\n",
-	   qp_info->this_nid, qp_info->node_cnt);
-    
-    mynid = qp_info->this_nid;
-    node_cnt = qp_info->node_cnt;
-	
-    while(!rmc_active)
-	;
+  node_cnt = atoi(argv[1]);
+  this_nid = atoi(argv[2]);
 
-    printf("[soft_rmc] RMC activated\n");
+  //queue pairs
+  volatile rmc_wq_t *wq = NULL;
+  volatile rmc_cq_t *cq = NULL;
+  
+  //local context region
+  char *local_mem_region;
 
-    volatile wq_entry_t *curr;
-    unsigned object_offset;
+  //local buffer
+  char *local_buffer;
+  
+  //allocate a queue pair
+  alloc_wq((rmc_wq_t **)&wq);
+  alloc_cq((rmc_cq_t **)&cq);
 
-    cpu_set_t cpuset;
-    pthread_t thread;
-    int s, abort_cnt;
-    
-    thread = pthread_self();
+  //create the global address space
+  if(ctx_alloc_grant_map(&local_mem_region, MAX_REGION_PAGES) == -1) {
+    printf("[soft_rmc_daemon] context not allocated\n");
+    return -1;
+  }
 
-    /* Set affinity mask to include CPUs 0 to 7 */
+  //allocate local buffer
+  local_buf_alloc(&local_buffer);
+  
+  //WQ ptrs
+  uint8_t local_wq_tail = 0;
+  uint8_t local_wq_SR = 1;
 
-    CPU_ZERO(&cpuset);
+  //CQ ptrs
+  uint8_t local_cq_head = 0;
+  uint8_t local_cq_SR = 1;
+  
+  uint8_t compl_idx;
+  
+  //nam_obj_header *header_src;
+  //nam_obj_header *header_dst;
+      
+  printf("[soft_rmc] RMC activated\n");
+  
+  volatile wq_entry_t *curr;
+  unsigned object_offset;
+  
+  int s, abort_cnt;
 
-    CPU_SET(1, &cpuset);
-
-    s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
-    if (s != 0)
-      printf("[soft_rmc] RMC not pinned\n");
-    
-    while(rmc_active) {
-	while (wq->q[local_wq_tail].SR == local_wq_SR) {
+  unsigned long buf_cnt = 0;
+  
+  while(rmc_active) {
+    while (wq->q[local_wq_tail].SR == local_wq_SR) {
 #ifdef DEBUG_RMC
 	    printf("[soft_rmc] reading remote memory, offset = %lu\n",
 	    	   wq->q[local_wq_tail].offset);
@@ -444,9 +541,11 @@ void *core_rmc_fun(void *arg) {
 	    }
 #else
 	    //old version w/o HW OCC
-	    memcpy((uint8_t *)curr->buf_addr,
+	    memcpy((uint8_t *)(local_buffer + curr->buf_addr),
 		   ctx[curr->nid] + curr->offset,
 		   curr->length);
+	    //buf_cnt++;
+	    //printf("[rmcd] buffer count %u\n", buf_cnt);
 #endif
 	    
 	    compl_idx = local_wq_tail;
@@ -473,9 +572,10 @@ void *core_rmc_fun(void *arg) {
     
     printf("[soft_rmc] RMC deactivated\n");
     
-    return NULL;
+    return 0;
 }
 
 void deactivate_rmc() {
     rmc_active = false;
 }
+

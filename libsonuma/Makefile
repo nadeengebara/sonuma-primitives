@@ -12,8 +12,9 @@ LDFLAGS	= -shared -fPIC -lc -lpthread -lrt
 TARGET  = libsonuma.so
 
 SOURCES = \
-	./sonuma.c \
-	./soft_rmc.c
+	./sonuma_daemon.c
+#\
+#	./soft_rmc.c
 
 HEADERS = \
 	./sonuma.h \
