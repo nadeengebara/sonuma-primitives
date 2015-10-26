@@ -13,7 +13,11 @@
 #define PROTOCOL_v2_2
 
 #ifdef FLEXUS
+#ifdef PROTOCOL_v2_2
+#define MAX_NUM_WQ 256
+#else
 #define MAX_NUM_WQ 128
+#endif
 #else
 #define MAX_NUM_WQ 100
 #endif
@@ -44,19 +48,18 @@
 #define CONTEXT_SIZE        21
 #define NEWWQENTRY_START    22
 
-
-//stuff for Page Walks
+//PT parameters for Page Walks
 #define PT_I 3
 #define PT_J 10
 #define PT_K 4
 
 #ifdef FLEXUS
 #define PAGE_SIZE 8192
+#define PAGE_BITS 0xffffffffffffe000
 #else
 #define PAGE_SIZE 4096
+#define PAGE_BITS 0xfffffffffffff000
 #endif
-
-#define PAGE_BITS 0xffffffffffffe000
 
 //WQ entry field offsets - for non-compacted version
 #define WQ_TYPE_OFFSET          0
@@ -71,6 +74,7 @@
 #define RMC_READ        1
 #define RMC_WRITE       2
 #define RMC_RMW         3
+#define RMC_SABRE	4
 #define RMC_INVAL       42
 #define PADBYTES        60
 
