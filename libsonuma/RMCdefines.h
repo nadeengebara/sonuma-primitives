@@ -9,7 +9,8 @@
 #define H_RMC_DEFINES
 
 //#define FLEXI_MODE  // do not use flexi mode unless for flexus ubenches
-//#define FLEXUS
+#define FLEXUS
+#define PROTOCOL_v2_2
 
 #ifdef FLEXUS
 #define MAX_NUM_WQ 128
@@ -121,11 +122,20 @@ typedef struct wq_entry{
 } wq_entry_t;
 #endif /* FLEXUS */
 
+
 #ifdef FLEXUS
+#ifdef PROTOCOL_v2_2
+typedef struct cq_entry{
+    volatile uint8_t SR : 1;     //sense reverse bit
+    volatile uint8_t success : 7; //only one bit actually used. !=0 means failure
+    volatile uint8_t tid;
+} cq_entry_t;
+#else
 typedef struct cq_entry{
     volatile uint8_t SR : 1;     //sense reverse bit
     volatile uint8_t tid : 7;
 } cq_entry_t;
+#endif
 #else
 typedef struct cq_entry{
     volatile uint8_t SR;     //sense reverse bit
