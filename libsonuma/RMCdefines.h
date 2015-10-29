@@ -13,11 +13,11 @@
 #define PROTOCOL_v2_2
 
 #ifdef FLEXUS
-#ifdef PROTOCOL_v2_2
-#define MAX_NUM_WQ 256
-#else
+//#ifdef PROTOCOL_v2_2
+//#define MAX_NUM_WQ 256
+//#else
 #define MAX_NUM_WQ 128
-#endif
+//#endif
 #else
 #define MAX_NUM_WQ 100
 #endif
@@ -47,6 +47,9 @@
 #define BUFFER_SIZE         20
 #define CONTEXT_SIZE        21
 #define NEWWQENTRY_START    22
+#define NEW_SABRE           23
+#define SABRE_SUCCESS       24
+#define SABRE_ABORT         25
 
 //PT parameters for Page Walks
 #define PT_I 3
