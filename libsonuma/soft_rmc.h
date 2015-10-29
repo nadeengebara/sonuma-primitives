@@ -60,7 +60,8 @@ struct nam_obj_header {
   nam_version_t version;
 };
 
-//#define HW_OCC
+#define HW_OCC
+
 #define OBJ_COUNT 2
 
 //#define DEBUG_RMC
