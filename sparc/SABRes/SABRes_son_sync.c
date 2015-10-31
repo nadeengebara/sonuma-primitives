@@ -15,7 +15,7 @@
 #include "../../libsonuma/magic_iface.h"
 
 #define ITERS 100000
-#define DATA_SIZE 1024	//in bytes
+#define DATA_SIZE 128 //1024	//in bytes
 #define CTX_ID 0
 #define DST_NID 1
 
@@ -116,10 +116,12 @@ void par_phase(void *arg) {
 	if (i % write_frequency == 0) {	//do write
 		do {
 			prevLockVal = acquire_lock(&(ctxbuff[luckyObj].lock));	//Test-and-set
+			#ifdef MY_DEBUG
 			if (prevLockVal) {
 				printf("thread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
 				usleep(10);
 			}
+			#endif
 		} while (prevLockVal);
 		for (j=0; j<DATA_SIZE; j++) {
 			ctxbuff[luckyObj].value[j] ^= 1;
@@ -141,7 +143,7 @@ void par_phase(void *arg) {
         	lbuff_slot = thread_buf_base + ((op_count * sizeof(data_object_t)) % thread_buf_size);
        		ctx_offset = luckyObj * sizeof(data_object_t);
         	wq_head = wq->head;
-        	create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, sizeof(data_object_t), (uint64_t)&(wq->q[wq_head]));
+        	create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, sizeof(data_object_t)>>6, (uint64_t)&(wq->q[wq_head]));
         	call_magic_2_64(wq_head, NEWWQENTRY, op_count);
 		wq->head =  wq->head + 1;
 	        if (wq->head >= MAX_NUM_WQ) {
@@ -204,7 +206,7 @@ int main(int argc, char **argv)
 
     uint32_t counter = 0;
     //initialize the local buffer
-    for(i=0; i<(buf_size*sizeof(uint8_t)); i++) {
+    for(i=0; i<(buf_size*sizeof(uint8_t)); i+=PAGE_SIZE) {
         lbuff[i] = 0;
         counter = i*sizeof(uint8_t)/PAGE_SIZE;
         call_magic_2_64((uint64_t)&(lbuff[i]), BUFFER, counter);
