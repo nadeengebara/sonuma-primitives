@@ -134,7 +134,7 @@ typedef struct wq_entry{
 #ifdef PROTOCOL_v2_2
 typedef struct cq_entry{
     volatile uint8_t SR : 1;     //sense reverse bit
-    volatile uint8_t success : 7; //only one bit actually used. !=0 means failure
+    volatile uint8_t success : 7; //only one bit actually used. 0 means failure
     volatile uint8_t tid;
 } cq_entry_t;
 #else
