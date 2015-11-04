@@ -6,8 +6,11 @@
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/processor.h>
+#include <sys/procset.h>
 
-#include "../libsonuma/RMCdefines.h"
+#include "../../libsonuma/RMCdefines.h"
 
 #define DATA_SIZE 1024	//in bytes
 #define NUM_OBJECTS 1000
@@ -98,6 +101,8 @@ int main(int argc, char* argv[]) {
   for (i=0; i<n; i++) {
 	p[i].id=i;
 	pthread_create(&threads[i], &pthread_custom_attr, par_phase, (void *)(p+i));
+        if (processor_bind(P_LWPID, threads[i], i, NULL))
+		printf("Could not bind thread %d!", i);
   }
 
  /* Synchronize the completion of each thread. */
