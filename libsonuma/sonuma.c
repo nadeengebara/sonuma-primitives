@@ -172,12 +172,12 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
 
 int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
     uint64_t buff_size = num_pages * PAGE_SIZE;
+    uint8_t *buff = *buff_ptr;
     if(*buff_ptr == NULL) {
 	//buff hasn't been allocated in the main application code
 	printf("[soft_rmc] local buffer memory hasn't been allocated.. allocating\n");
 #ifdef FLEXUS
-	uint8_t *buff = *buff_ptr;
-	buff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
+	buff = memalign(PAGE_SIZE, buff_size*sizeof(uint8_t));
 #else
 	//*buff_ptr = (uint8_t *)malloc(buff_size * sizeof(uint8_t));
 	posix_memalign((void **)buff_ptr, PAGE_SIZE, buff_size*sizeof(char));
@@ -307,7 +307,8 @@ void flexus_signal_all_set() {
 #endif
         
         DLog("[sonuma] Call Flexus magic call (ALL_SET).");
-        call_magic_2_64(1, ALL_SET, 1);
+        //call_magic_2_64(1, ALL_SET, 1);
+        call_magic_sim_break(1, ALL_SET, 1);
         is_timing = 1;
     } else {
         DLog("[sonuma] (ALL_SET) magic call won't be called more than once.");
