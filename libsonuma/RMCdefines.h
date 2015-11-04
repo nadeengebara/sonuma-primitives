@@ -43,13 +43,14 @@
 #define NETPIPE_START       16
 #define NETPIPE_END         17
 #define RMC_DEBUG_BP        18
-#define PAGERANK_END        19
+#define BENCHMARK_END       19
 #define BUFFER_SIZE         20
 #define CONTEXT_SIZE        21
 #define NEWWQENTRY_START    22
 #define NEW_SABRE           23
 #define SABRE_SUCCESS       24
 #define SABRE_ABORT         25
+#define OBJECT_WRITE        26	//used by writers in SABRe experiments, to count number of object writes
 
 //PT parameters for Page Walks
 #define PT_I 3
