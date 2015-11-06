@@ -92,7 +92,9 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
         return -1;
     }
     //retcode = mlock((void *)wq, sizeof(rmc_wq_t));
-    retcode = mlock((void *)wq, PAGE_SIZE);
+    retcode = mlock((void *)wq, PAGE_SIZE);	//Alex: so the application doesn't actually get to know if pin succeeded or not,
+						//and if you don't have debug messages enabled, you can't even deduce it by looking at the terminal
+						//Same issue with all mlocks in the library.
     if (retcode != 0) {
         DLog("[sonuma] WQueue mlock returned %d", retcode);
     } else {
@@ -239,7 +241,7 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     //assert(ctx_ptr != NULL);
    
 #ifdef FLEXUS
-    int i, retcode, counter;
+    int i, retcode;
     uint8_t *ctx = *ctx_ptr;
     int ctx_size = num_pages * PAGE_SIZE;
     if(ctx == NULL)
@@ -252,7 +254,6 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
         DLog("[sonuma] Context buffer (size=%d, %d pages) was pinned successfully.", ctx_size, num_pages);
     }
 
-    counter = 0;
     //initialize the context buffer
     ctx[0] = DEFAULT_CTX_VAL;
     call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now

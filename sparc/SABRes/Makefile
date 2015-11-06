@@ -2,7 +2,8 @@
 SHELL = /bin/sh
 CC  = gcc
 
-CFLAGS       = -fPIC -Wall -m64 -mcpu=v9 -O0 -g -I../../libsonuma
+#CFLAGS       = -fPIC -Wall -m64 -mcpu=v9 -O0 -g -I../../libsonuma
+CFLAGS       = -fPIC -Wall -m64 -mcpu=v9 -O3 -g -I../../libsonuma
 
 #-combine
 #LDFLAGS	= -shared -fPIC -lc -lpthread -lrt
@@ -14,7 +15,8 @@ LDFLAGS__SABRE_UBENCH = -lsonuma -L. -lpthread
 
 TARGET  = libsonuma.so
 
-TARGET_SABRE_UBENCH = SABRes_sync_ubench
+#TARGET_SABRE_UBENCH = SABRes_sync_ubench
+TARGET_SABRE_UBENCH = SABRes_son_multithread
 
 SOURCES = \
 	../../libsonuma/sonuma.c
@@ -23,7 +25,8 @@ HEADERS = \
 	../../libsonuma/sonuma.h
  
 SOURCES_SABRE_UBENCH = \
-	./SABRes_sync_ubench.c
+	./SABRes_son_multithread.c
+#	./SABRes_sync_ubench.c
  
 OBJECTS = $(SOURCES:.c=.o)
 

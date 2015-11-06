@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <assert.h>
 
 #include "RMCdefines.h"
 
@@ -27,7 +28,9 @@
     //#define DEBUG_PERF
     // ustiugov: WARNING!!! DEBUG_STATS enable additional Flexus stats in measurement 
     //           phase that impacts the measurements. Do not enable during experiments!
-    #define DEBUG_FLEXUS_STATS
+    //#define DEBUG_FLEXUS_STATS
+    //ALEX: for latency measurements; these should introduce minimal overhead (4 non-mem instructions)
+    #define STATS_BREAKPOINTS
 #else
     #include "soft_rmc.h"
 #endif
@@ -46,10 +49,12 @@
 #define DLogPerf(M, ...)
 #endif
 
+
+//ALEX - WARNING: race conditions when having multiple threads
 #ifdef DEBUG_FLEXUS_STATS
 // global variables for sonuma operation counters
-extern uint64_t op_count_issued;
-extern uint64_t op_count_completed;
+ extern uint64_t op_count_issued;
+ extern uint64_t op_count_completed;
 #endif
 
 //static pthread_t rmc_thread;
@@ -204,6 +209,8 @@ static inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handl
             DLogPerf("[sonuma] Call Flexus magic call (WQENTRYDONE).");
             call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
             DLogPerf("Checking CQ %"PRIu64" time...", op_count_completed);
+#elif defined(STATS_BREAKPOINTS)
+            call_magic_2_64(tid, WQENTRYDONE, 0);
 #endif
             cq_tail = cq->tail;
 
@@ -229,6 +236,8 @@ static inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, 
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
     DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+#elif defined(STATS_BREAKPOINTS)
+    call_magic_2_64(wq_head, NEWWQENTRY, 0);
 #endif
 
 #else // Linux below
@@ -276,8 +285,10 @@ static inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slo
     length = length / BLOCK_SIZE; // number of cache lines
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 
-#ifdef DEBUG_FLEXUS_STATS
+#if defined(DEBUG_FLEXUS_STATS) 
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+#elif defined(STATS_BREAKPOINTS)
+    call_magic_2_64(wq_head, NEWWQENTRY, 0);
 #endif
 
 #else // Linux below
@@ -316,6 +327,8 @@ static inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slo
 #ifdef DEBUG_FLEXUS_STATS
     op_count_completed++;
     call_magic_2_64(cq_tail, WQENTRYDONE, op_count_completed);
+#elif defined(STATS_BREAKPOINTS)
+    call_magic_2_64(cq_tail, WQENTRYDONE, 0);
 #endif
     cq->tail = cq->tail + 1;
 
@@ -327,7 +340,8 @@ static inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slo
 }
 
 // ustiugov: introduced in API 2.2
-static inline void rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+//returns 1 on success, 0 on fail
+static uint8_t rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifdef FLEXUS
     DLogPerf("[sonuma] rmc_sabre_sync called in Flexus mode.");
 #else
@@ -351,16 +365,19 @@ static inline void rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slo
 
 #ifdef DEBUG_FLEXUS_STATS
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+#elif defined(STATS_BREAKPOINTS)
+    call_magic_2_64(wq_head, NEWWQENTRY, 0);
 #endif
 
 #else // Linux below
     wq->q[wq_head].buf_addr = lbuff_slot;
     wq->q[wq_head].cid = ctx_id;
     wq->q[wq_head].offset = ctx_offset;
+
     if(length < 64)
 	wq->q[wq_head].length = 64; //at least 64B
     else
-	wq->q[wq_head].length = length; //specify the length of the transfer
+        wq->q[wq_head].length = length; //specify the length of the transfer
     wq->q[wq_head].op = 'r';
     wq->q[wq_head].nid = snid;
     //soNUMA v2.1
@@ -384,15 +401,15 @@ static inline void rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slo
 
     //printf("[sonuma] remote read completed\n");
     
-#ifdef DEBUG_FLEXUS_STATS
+#ifdef STATS_BREAKPOINTS 
     if (cq->q[cq_tail].success) {	//No atomicity violation!
-        call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count_completed);
+        call_magic_2_64(cq_tail, SABRE_SUCCESS, 0);
     } else {	//Atomicity violation detected
-        call_magic_2_64(cq_tail, SABRE_ABORT, op_count_completed);
+        call_magic_2_64(cq_tail, SABRE_ABORT, 0);
     }
     
-    op_count_completed++;
-    call_magic_2_64(cq_tail, WQENTRYDONE, op_count_completed);
+//    op_count_completed++;
+//    call_magic_2_64(cq_tail, WQENTRYDONE, op_count_completed);	//ALEX - redundant
 #endif
     
     // mark the entry as invalid, i.e. completed
@@ -404,6 +421,7 @@ static inline void rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slo
         cq->tail = 0;
         cq->SR ^= 1;
     }    
+    return cq->q[cq_tail].success;
 }
 
 static inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
@@ -428,6 +446,8 @@ static inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint3
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
     DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
     call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+#elif defined(STATS_BREAKPOINTS)
+    call_magic_2_64(wq_head, NEWWQENTRY, 0);
 #endif
 
     wq->head =  wq->head + 1;
