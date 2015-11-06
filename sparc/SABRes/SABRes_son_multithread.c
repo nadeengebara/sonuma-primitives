@@ -19,13 +19,13 @@
 #include <sys/pset.h>
 
 #define ITERS 100000000
-#define DATA_SIZE 128 //1024	//in bytes
+#define DATA_SIZE 1024	//in bytes
 #define CTX_ID 0
 #define DST_NID 1
 
 //RMW for atomic lock acquirement
 static inline __attribute__ ((always_inline))
-    uint8_t acquire_lock(uint8_t *address) {
+    uint8_t acquire_lock(volatile uint8_t *address) {
         uint8_t ret_value;
         __asm__ __volatile__ (
                 "ldstub [%1], %%l0\n\t"
@@ -40,7 +40,7 @@ static inline __attribute__ ((always_inline))
 //data object's struct
 typedef struct data_object {
   uint64_t version;
-  uint8_t lock;
+  volatile uint8_t lock;
   uint32_t key;
   uint8_t value[DATA_SIZE];
   uint8_t padding[64-(DATA_SIZE+16)%64]; //All objects need to be cache-line-aligned
@@ -59,7 +59,7 @@ int readers, writers;
 
 pthread_barrier_t   barrier; 
 
-int par_phase_write(void *arg) {
+void * par_phase_write(void *arg) {
     parm *p=(parm *)arg;
      
     int i,j,luckyObj,offset;
@@ -71,14 +71,16 @@ int par_phase_write(void *arg) {
 	luckyObj = rand() % num_objects;
 	offset = luckyObj * sizeof(data_object_t);
   	uint8_t prevLockVal;
+	while (ctxbuff[luckyObj].lock);	//TTS
 	do {
 		prevLockVal = acquire_lock(&(ctxbuff[luckyObj].lock));	//Test-and-set
-		#ifdef MY_DEBUG
 		if (prevLockVal) {
+		//	call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
+			#ifdef MY_DEBUG
 			printf("thread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
 			usleep(10);
+			#endif
 		}
-		#endif
 	} while (prevLockVal);
 	for (j=0; j<DATA_SIZE; j++) {
 		ctxbuff[luckyObj].value[j] ^= 1;
@@ -101,10 +103,9 @@ int par_phase_write(void *arg) {
 	#endif
     }
     call_magic_2_64(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
-    return 0;
 }
 
-int par_phase_read(void *arg) {
+void * par_phase_read(void *arg) {
     parm *p=(parm *)arg;
     
     rmc_wq_t *wq;
@@ -115,7 +116,7 @@ int par_phase_read(void *arg) {
     wq = memalign(PAGE_SIZE, PAGE_SIZE);//Should allocate full page
     if (wq == NULL) {
         fprintf(stdout, "Work Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
-        return 1;
+        exit(1);
     } 
     //retcode = mlock(wq, sizeof(rmc_wq_t));
     int retcode = mlock(wq, PAGE_SIZE);
@@ -125,7 +126,7 @@ int par_phase_read(void *arg) {
     cq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (cq == NULL) {
         fprintf(stdout, "Completion Queue could not be allocated. Memalign returned %"PRIu64"\n", 0);
-        return 1;
+        exit(1);
     } 
     //retcode = mlock(cq, sizeof(rmc_cq_t));
     retcode = mlock(cq, PAGE_SIZE);
@@ -157,16 +158,20 @@ int par_phase_read(void *arg) {
     pthread_barrier_wait (&barrier);
     if (!p->id) call_magic_2_64(1, ALL_SET, 1); //INIT DONE
  
-    uint64_t lbuff_slot, ctx_offset, op_count = 0;
-    uint64_t thread_buf_base = lbuff + thread_buf_size * p->id; //this is the local buffer's base address for this thread
+    uint8_t *lbuff_slot, *thread_buf_base;
+    uint64_t ctx_offset, op_count = 0;
     uint32_t wq_head, cq_tail;
-     
+    thread_buf_base = lbuff + thread_buf_size * p->id; //this is the local buffer's base address for this thread
+
+//reader kernel    
+    uint8_t success = 1; 
     for (i = 0; i<iters; i++) {
-	luckyObj = rand() % num_objects;
-	offset = luckyObj * sizeof(data_object_t);
-  	uint8_t prevLockVal;
-        lbuff_slot = thread_buf_base + ((op_count * sizeof(data_object_t)) % thread_buf_size);
-       	ctx_offset = luckyObj * sizeof(data_object_t);
+	if (!success) {	//if previous read did not succeed, retry it
+        	luckyObj = rand() % num_objects;
+		offset = luckyObj * sizeof(data_object_t);
+	        lbuff_slot = (uint8_t *)(thread_buf_base + ((op_count * sizeof(data_object_t)) % thread_buf_size));
+       		ctx_offset = luckyObj * sizeof(data_object_t);
+	}
         wq_head = wq->head;
         create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, sizeof(data_object_t)>>6, (uint64_t)&(wq->q[wq_head]));
         call_magic_2_64(wq_head, NEWWQENTRY, op_count);
@@ -178,8 +183,14 @@ int par_phase_read(void *arg) {
         //sync
         cq_tail = cq->tail;
         while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
-	if (cq->q[cq_tail].success) {	//No atomicity violation!
+	success = cq->q[cq_tail].success;
+	if (success) {	//No atomicity violation!
         	call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
+		//touch the data
+		uint64_t accum;
+		for (j=0; j<DATA_SIZE; j+=2) 
+			accum += (uint8_t)*(lbuff_slot + j);
+	        *(lbuff_slot) = (uint8_t)accum;
 	} else {	//Atomicity violation detected
         	call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
 	}
@@ -191,11 +202,11 @@ int par_phase_read(void *arg) {
       		cq->SR ^= 1;
         }    
 	op_count++;
+	
     }
     call_magic_2_64(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
     free(wq);
     free(cq);
-    return 0;
 }
 
 int main(int argc, char **argv)
@@ -294,7 +305,9 @@ int main(int argc, char **argv)
 		if (error) {
 			printf("Could not bind reader thread %d to core %d! (error %d)\n", i, core, error);
 	      	} else {
+			#ifdef MY_DEBUG
 			printf("Bound reader thread %d to core %d\n", i, core);
+			#endif
        	 	}
         } else {
 		p[i].is_reader = 0;
