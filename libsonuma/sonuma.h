@@ -22,17 +22,17 @@
 #ifdef FLEXUS
     #include "magic_iface.h"
     #include "son_asm.h"
+    // ustiugov: WARNING!!! DEBUG_PERF enables I/O in performance regions (it uses DLogPerf)!
+    //           Do not enable during experiments!
+    //#define DEBUG_PERF
+    // ustiugov: WARNING!!! DEBUG_STATS enable additional Flexus stats in measurement 
+    //           phase that impacts the measurements. Do not enable during experiments!
+    #define DEBUG_FLEXUS_STATS
 #else
     #include "soft_rmc.h"
 #endif
 
 #define DEBUG
-// ustiugov: WARNING!!! DEBUG_PERF enables I/O in performance regions (it uses DLogPerf)!
-//           Do not enable during experiments!
-//#define DEBUG_PERF
-// ustiugov: WARNING!!! DEBUG_STATS enable additional Flexus stats in measurement 
-//           phase that impacts the measurements. Do not enable during experiments!
-#define DEBUG_FLEXUS_STATS
 
 #ifdef DEBUG
 #define DLog(M, ...) fprintf(stdout, "DEBUG %s:%d: " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
