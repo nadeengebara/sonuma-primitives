@@ -19,6 +19,12 @@
 #define CTX_ID 0
 #define DST_NID 1
 
+#ifdef DEBUG_FLEXUS_STATS
+// global variables from sonuma.h
+uint64_t op_count_issued;
+uint64_t op_count_completed;
+#endif
+
 //RMW for atomic lock acquirement
 static inline __attribute__ ((always_inline))
     uint8_t acquire_lock(uint8_t *address) {
@@ -53,11 +59,13 @@ int write_frequency;	//how many reads to have per write
 uint64_t thread_buf_size;
 
 void par_phase(void *arg) {
+    int i;
     parm *p=(parm *)arg;
    
     rmc_wq_t *wq;
     rmc_cq_t *cq;;
 
+    /*
     //init stuff - allocate queues, one QP per thread
     //wq = memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     wq = memalign(PAGE_SIZE, PAGE_SIZE);//Should allocate full page
@@ -68,7 +76,14 @@ void par_phase(void *arg) {
     //retcode = mlock(wq, sizeof(rmc_wq_t));
     int retcode = mlock(wq, PAGE_SIZE);
     if (retcode != 0)  fprintf(stdout, "WQueue mlock returned %d\n", retcode);
+*/
+    kal_reg_wq(0, &wq);
+    fprintf(stdout, "WQ was registered.\n");
 
+    kal_reg_cq(0, &cq);
+    fprintf(stdout, "CQ was registered.\n");
+    
+    /*
     //cq = memalign(PAGE_SIZE, sizeof(rmc_cq_t));//Should allocate full page
     cq = memalign(PAGE_SIZE, PAGE_SIZE);
     if (cq == NULL) {
@@ -79,7 +94,6 @@ void par_phase(void *arg) {
     retcode = mlock(cq, PAGE_SIZE);
     if (retcode != 0) fprintf(stdout, "CQueue mlock returned %d\n", retcode);
 
-    uint8_t operation = (uint8_t)RMC_INVAL;
     //setup work queue
     wq->head = 0;
     wq->SR = 1;
@@ -98,13 +112,16 @@ void par_phase(void *arg) {
         cq->q[i].SR = 0;
     }
     call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
+*/
 
-
+    uint8_t operation = (uint8_t)RMC_INVAL;
+    
     int j,luckyObj,offset;
     srand(p->id);		//remove this for lots of conflicts :-)
-    call_magic_2_64(1, ALL_SET, 1); //INIT DONE
+    //call_magic_2_64(1, ALL_SET, 1); //INIT DONE
+    flexus_signal_all_set();
  
-    uint64_t lbuff_slot, ctx_offset, op_count = 0;
+    uint64_t lbuff_slot, ctx_offset, op_count_completed = 0;
     uint64_t thread_buf_base = lbuff + thread_buf_size * p->id; //this is the local buffer's base address for this thread
     uint32_t wq_head, cq_tail;
 
@@ -140,11 +157,13 @@ void par_phase(void *arg) {
 		#endif
 		ctxbuff[luckyObj].lock = 0;	//unlock
 	} else {    //schedule rread
-        	lbuff_slot = thread_buf_base + ((op_count * sizeof(data_object_t)) % thread_buf_size);
+        	lbuff_slot = thread_buf_base + ((op_count_completed * sizeof(data_object_t)) % thread_buf_size);
        		ctx_offset = luckyObj * sizeof(data_object_t);
+                rmc_sabre_sync(wq, cq, lbuff_slot, DST_NID, CTX_ID, ctx_offset, sizeof(data_object_t)>>6);
+            /*
         	wq_head = wq->head;
         	create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, sizeof(data_object_t)>>6, (uint64_t)&(wq->q[wq_head]));
-        	call_magic_2_64(wq_head, NEWWQENTRY, op_count);
+        	call_magic_2_64(wq_head, NEWWQENTRY, op_count_completed);
 		wq->head =  wq->head + 1;
 	        if (wq->head >= MAX_NUM_WQ) {
  	           	wq->head = 0;
@@ -154,18 +173,19 @@ void par_phase(void *arg) {
         	cq_tail = cq->tail;
         	while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
 		if (cq->q[cq_tail].success) {	//No atomicity violation!
-        		call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
+        		call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count_completed);
 		} else {	//Atomicity violation detected
-        		call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
+        		call_magic_2_64(cq_tail, SABRE_ABORT, op_count_completed);
 		}
+
         	wq->q[cq->q[cq_tail].tid].valid = 0;	//free WQ entry
 
         	cq->tail = cq->tail + 1;
         	if (cq->tail >= MAX_NUM_WQ) {
             		cq->tail = 0;
           		cq->SR ^= 1;
-	        }    
-		op_count++;
+	        }
+                */
 	}
     }
     free(wq);
@@ -195,6 +215,41 @@ int main(int argc, char **argv)
     }
     write_frequency++;
 
+
+
+    //local buffer
+    lbuff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
+    if (lbuff == NULL) {
+        fprintf(stdout, "Local buffer could not be allocated.\n");
+        return 1;
+    }
+
+    uint32_t num_pages =  buf_size * sizeof(uint8_t) / PAGE_SIZE;
+    fprintf(stdout, "Local buffer was allocated by address %p, number of pages is %d\n", lbuff, num_pages);
+
+    kal_reg_lbuff(0, &lbuff, num_pages);
+    fprintf(stdout, "Local buffer was registered.\n");
+
+    ctxbuff = memalign(PAGE_SIZE, ctx_size*sizeof(uint8_t));
+    if (ctxbuff == NULL) {
+        fprintf(stdout, "Context buffer could not be allocated.\n");
+        return 1;
+    }
+    
+    uint32_t counter = 0;
+    //initialize the context buffer
+    ctxbuff[0].lock = 0;
+    //call_magic_2_64((uint64_t)ctxbuff, CONTEXTMAP, 0);
+    kal_reg_ctx(0, &ctxbuff, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
+    for(i=0; i<num_objects; i++) {
+        ctxbuff[i].lock = 0;
+        ctxbuff[i].version = 0;
+	ctxbuff[i].key = counter;
+        counter++;
+        //call_magic_2_64((uint64_t)&(ctxbuff[i]), CONTEXT, counter);
+    } 
+    fprintf(stdout, "Ctx buffer was registered by addr=%p, ctx_size=%d, %d pages.\n", ctxbuff, ctx_size, ctx_size*sizeof(uint8_t) / PAGE_SIZE);
+/*
     //local buffer
     lbuff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
     if (lbuff == NULL) {
@@ -238,6 +293,7 @@ int main(int argc, char **argv)
     //register ctx and buffer sizes, only needed for the flexi version of the app; pass this info anyway
     call_magic_2_64(42, BUFFER_SIZE, buf_size);
     call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
+*/
     fprintf(stdout,"Init done! Allocated %d objects of %d bytes (pure object data = %d, total size = %d bytes).\
 		\nLocal buffer size = %d Bytes.\
 		\nWill now allocate per-thread QPs and run with %d threads.\
