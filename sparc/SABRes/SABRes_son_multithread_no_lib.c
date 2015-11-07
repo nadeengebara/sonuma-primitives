@@ -53,6 +53,8 @@ inline nam_cl_version_t version_get_cl_version_bits(nam_version_t version) {
   return (nam_cl_version_t)(version >> RESERVED_BITS);
 }
 ////////////////////////////////////////////////////////////////////////////////////////////
+//#define MEASURE_TS //to measure the latency of the writers' critical section
+//#define MY_DEBUG
 
 //RMW for atomic lock acquirement
 static inline __attribute__ ((always_inline))
@@ -213,6 +215,9 @@ void * par_phase_write(void *arg) {
 			#endif
 		}
 	} while (prevLockVal);
+        #ifdef MEASURE_TS
+	call_magic_2_64(luckyObj, CS_START, i);	//signal the beginning of the CS
+        #endif
 	for (j=0; j<DATA_SIZE; j++) {
 		ctxbuff[luckyObj].value[j] ^= 1;
 	}
