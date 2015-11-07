@@ -18,11 +18,41 @@
 #include "../../libsonuma/magic_iface.h"
 #include <sys/pset.h>
 
+#define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
+#define DEBUG_ASSERT(...)
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define APP_BUFF_SIZE PAGE_SIZE
+
 #define ITERS 100000000
-#define DATA_SIZE 1024	//in bytes
+//#define DATA_SIZE 1024	//in bytes <- ustiugov: add to compiler options -D DATA_SIZE=<value>
 #define OBJECT_BYTE_STRIDE 128  //how much of the object will be touched by readers/writers (128 -> 50% (half of the blocks))
 #define CTX_ID 0
 #define DST_NID 1
+
+/////////////////////////////////// FARM's good stuff /////////////////////////////////////
+#define CACHE_LINE_SIZE 64
+typedef uintptr_t nam_version_t;
+typedef uint16_t nam_cl_version_t;
+
+const nam_version_t UPDATING_MASK = 2;
+const nam_version_t RESERVED_BITS = 2;
+
+const size_t DATA_BYTES_PER_CACHE_LINE = CACHE_LINE_SIZE - sizeof(nam_cl_version_t);
+
+//FARM header of an object
+typedef struct Header {
+  nam_version_t version;
+  uint64_t incarnation;
+} header_t;
+
+int version_is_updating(nam_version_t version) {
+  return (version & UPDATING_MASK) != 0;
+}
+
+inline nam_cl_version_t version_get_cl_version_bits(nam_version_t version) {
+  return (nam_cl_version_t)(version >> RESERVED_BITS);
+}
+////////////////////////////////////////////////////////////////////////////////////////////
 
 //RMW for atomic lock acquirement
 static inline __attribute__ ((always_inline))
@@ -59,6 +89,107 @@ uint64_t thread_buf_size;
 uint16_t readers, writers;
 
 pthread_barrier_t   barrier; 
+
+inline int fast_memcpy_from_nam_buf(void *obj, void *buf, uintptr_t nam, size_t total_size) {
+    uintptr_t src = (uintptr_t)buf;
+    uintptr_t dst = (uintptr_t)obj;
+    size_t size = total_size;
+
+    /////////
+    int count = 0;
+    /////////
+
+#ifdef NO_SW_VERSION_CONTROL
+    memcpy((void *)dst, (void *)src, size);
+    return 1;
+#else
+
+    // calculate the first address in the second cache line, using the nam pointer
+    // as we might be copying data from a differently aligned RDMA read buffer
+    uintptr_t first_cl_end = (nam + CACHE_LINE_SIZE) & ~(CACHE_LINE_SIZE - 1);
+    //size_t copy_size = std::min(first_cl_end - nam, size);
+    size_t copy_size = MIN(first_cl_end - nam, size);
+    //DEBUG_ASSERT((sizeof(size_t) == 8) && (copy_size & 0x7) == 0 && (dst & 0x7) == 0);
+    DEBUG_ASSERT((sizeof(size_t) == 8) && (copy_size & 0x7) == 0 && (dst & 0x7) == 0);
+
+    // Now get the version. 
+    header_t *hdr = (header_t *)dst;
+
+
+    size -= copy_size;
+    first_cl_end = src + copy_size;
+    while (src < first_cl_end) {
+        *(size_t*)dst = *(size_t*)src;
+        dst+=8;
+        src+=8;
+    }
+
+    // Now get the version. Because the version is the first word in the
+    // header we know that it has been copied to the output buffer.
+    // if object is being updated, return immediately
+    if(version_is_updating(hdr->version)) {
+        count++;
+#ifndef FAKE_REMOTE_READS
+        return 0;
+#endif
+    }
+
+    // This is the version we expect in each cache line.
+    nam_cl_version_t hdrver = version_get_cl_version_bits(hdr->version);
+
+    while (1) {
+        if (size >= DATA_BYTES_PER_CACHE_LINE) {
+            // check the version and return 0 immediately if it doesn't match
+            if(*(nam_cl_version_t *)src != hdrver) {
+                count++;
+#ifndef FAKE_REMOTE_READS
+                return 0;
+#endif
+            }
+
+            DEBUG_ASSERT((sizeof(unsigned short) == 2) && ((dst & 0x1) == 0) && ((src & 0x1) == 0) );
+
+            src += sizeof(nam_cl_version_t);
+
+            size_t i;
+            for (i=0; i < DATA_BYTES_PER_CACHE_LINE; i+=2) {
+                *((unsigned short*)(dst + i)) = *((unsigned short*)(src + i));
+            }
+            dst += DATA_BYTES_PER_CACHE_LINE;
+            src += DATA_BYTES_PER_CACHE_LINE; 
+            size -= DATA_BYTES_PER_CACHE_LINE;
+        } else {
+            break;
+        }
+    }
+
+    // check the cache line version inthe last cache line
+    if(size > 0) {
+        // check the version and return 0 immediately if it doesn't match
+        if(*(nam_cl_version_t *)src != hdrver) {
+            count++;
+#ifndef FAKE_REMOTE_READS
+            return 0;
+#endif
+        }
+
+        src += sizeof(nam_cl_version_t);
+    }
+
+    // deal with the last cache line
+
+    DEBUG_ASSERT((size & 0x1) == 0);
+    while (size > 0) {
+        *(unsigned short*)dst = *(unsigned short*)src;
+        size -= 2;
+        dst += 2;
+        src += 2;
+    }
+
+    // if we are here, all cache line versions match
+    return 1;
+#endif /* NO_SW_VERSION_CONTROL */
+}
 
 void * par_phase_write(void *arg) {
     parm *p=(parm *)arg;
@@ -113,6 +244,15 @@ void * par_phase_read(void *arg) {
     rmc_wq_t *wq;
     rmc_cq_t *cq;;
 
+    uint8_t *app_buff;
+    app_buff = memalign(PAGE_SIZE, APP_BUFF_SIZE);
+    unsigned payload_cache_blocks = sizeof(data_object_t)>>6;
+
+    if (app_buff == NULL) {
+        fprintf(stdout, "App buffer could not be allocated. Malloc returned %"PRIu64"\n", 0);
+        exit(1);
+    } 
+
     //init stuff - allocate queues, one QP per thread
     //wq = memalign(PAGE_SIZE, sizeof(rmc_wq_t));
     wq = memalign(PAGE_SIZE, PAGE_SIZE);//Should allocate full page
@@ -166,45 +306,54 @@ void * par_phase_read(void *arg) {
     thread_buf_base = lbuff + thread_buf_size * p->id; //this is the local buffer's base address for this thread
 
 //reader kernel    
-    uint8_t success = 1; 
+    uint8_t success = 0; 
     for (i = 0; i<iters; i++) {
-	if (success) {	//if previous read succeeded, read new object
-        	luckyObj = rand() % num_objects;
-	        lbuff_slot = (uint8_t *)(thread_buf_base + ((op_count * sizeof(data_object_t)) % thread_buf_size));
-       		ctx_offset = luckyObj * sizeof(data_object_t);
-	} //else, if previous read failed, target object remains the same
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 0);
+        luckyObj = rand() % num_objects;
+        lbuff_slot = (uint8_t *)(thread_buf_base + ((luckyObj * sizeof(data_object_t)) % thread_buf_size));
+        ctx_offset = luckyObj * sizeof(data_object_t);
         wq_head = wq->head;
-        create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, sizeof(data_object_t)>>6, (uint64_t)&(wq->q[wq_head]));
-        call_magic_2_64(wq_head, NEWWQENTRY, op_count);
-	wq->head =  wq->head + 1;
-	if (wq->head >= MAX_NUM_WQ) {
- 	    	wq->head = 0;
-      		wq->SR ^= 1;
-    	}
-        //sync
-        cq_tail = cq->tail;
-        while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
-	success = cq->q[cq_tail].success;
-        wq->q[cq->q[cq_tail].tid].valid = 0;	//free WQ entry
+        while (!success) {	//read the object again if it's not consistent
+            create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
+            call_magic_2_64(wq_head, NEWWQENTRY, op_count);
+            wq->head =  wq->head + 1;
+            if (wq->head >= MAX_NUM_WQ) {
+                wq->head = 0;
+                wq->SR ^= 1;
+            }
+            //sync
+            cq_tail = cq->tail;
+            while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
+            success = cq->q[cq_tail].success;
+            wq->q[cq->q[cq_tail].tid].valid = 0;	//free WQ entry
 
-       	cq->tail = cq->tail + 1;
-       	if (cq->tail >= MAX_NUM_WQ) {
-      		cq->tail = 0;
-      		cq->SR ^= 1;
-        }    
-	if (success) {	//No atomicity violation!
-        	call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
-		//touch the data
-		uint64_t accum;
-		for (j=0; j<DATA_SIZE; j+=OBJECT_BYTE_STRIDE) 
-			accum += (uint64_t)*(lbuff_slot + j);
-	        *(lbuff_slot) = accum;
-	} else {	//Atomicity violation detected
-        	call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
-	}
+            cq->tail = cq->tail + 1;
+            if (cq->tail >= MAX_NUM_WQ) {
+                cq->tail = 0;
+                cq->SR ^= 1;
+            }    
+            PASS2FLEXUS_MEASURE(i, MEASUREMENT, 10);
+            if (success) {	//No atomicity violation!
+                call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
 
-	op_count++;
-	
+                PASS2FLEXUS_MEASURE(i, MEASUREMENT, 20);
+                fast_memcpy_from_nam_buf((void*)app_buff, (void*)lbuff_slot, (uintptr_t) lbuff_slot, payload_cache_blocks);
+                PASS2FLEXUS_MEASURE(i, MEASUREMENT, 30);
+                /*
+                //touch the data
+                uint64_t accum;
+                for (j=0; j<DATA_SIZE; j+=OBJECT_BYTE_STRIDE) 
+                accum += (uint64_t)*(lbuff_slot + j);
+                 *(lbuff_slot) = accum;
+                 */
+            } else {	//Atomicity violation detected
+                call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
+            }
+
+            op_count++;
+        }
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 40);
+
     }
     call_magic_2_64(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
     free(wq);
@@ -222,6 +371,15 @@ int main(int argc, char **argv)
         fprintf(stdout,"Usage: %s <num_objects> <num_readers> <num_writers>\n", argv[0]);
         return 1;  
     }
+#ifndef DATA_SIZE
+    assert(0); // add to compiler options -D DATA_SIZE=<value>
+#endif
+#ifdef NO_SW_VERSION_CONTROL
+    fprintf(stdout,"Running without SW versions memcopy\n");
+#else
+    fprintf(stdout,"Running with SW versions memcopy\n");
+#endif
+    fprintf(stdout,"Application buffer size is %d bytes\n", APP_BUFF_SIZE);
     assert(sizeof(data_object_t)%64 == 0);
     num_objects = atoi(argv[1]);
     uint64_t ctx_size = num_objects*sizeof(data_object_t);

@@ -52,6 +52,7 @@
 #define SABRE_ABORT         25
 #define OBJECT_WRITE        26	//used by writers in SABRe experiments, to count number of object writes
 #define LOCK_SPINNING	    27
+#define MEASUREMENT	    99
 
 //PT parameters for Page Walks
 #define PT_I 3
