@@ -4,6 +4,9 @@
 //Writers only issue random writes to objects, readers issue SYNCHRONOUS reads to remote memory.
 //Threads are pinned to cores.
 
+
+ALEX: DEPRECATED! SABRes_son_multithread_no_lib.c is the latest. 
+
 #define __STDC_FORMAT_MACROS
 #define _GNU_SOURCE
 #include <pthread.h>

@@ -20,6 +20,7 @@
 
 #define ITERS 100000000
 #define DATA_SIZE 1024	//in bytes
+#define OBJECT_BYTE_STRIDE 128  //how much of the object will be touched by readers/writers (128 -> 50% (half of the blocks))
 #define CTX_ID 0
 #define DST_NID 1
 
@@ -93,7 +94,7 @@ void * par_phase_write(void *arg) {
 	  key = %" PRIu32 "\n", ctxbuff[luckyObj].version, ctxbuff[luckyObj].lock, ctxbuff[luckyObj].key);
 	#endif
 	ctxbuff[luckyObj].key ^= 7;  //random operation on object
-	for (j=0; j<DATA_SIZE; j+=2) 
+	for (j=0; j<DATA_SIZE; j+=OBJECT_BYTE_STRIDE) 
 		ctxbuff[luckyObj].value[j] = (uint8_t)i;
 	ctxbuff[luckyObj].version++;
 	ctxbuff[luckyObj].lock = 0;	//unlock
@@ -190,27 +191,36 @@ void * par_phase_read(void *arg) {
                 }
                 cq_tail = cq->tail;
                 
-                //process read data
+                //process read data AND schedule another request
                 if (success) {	//No atomicity violation!
                     call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count_completed);
 	            //touch the data
 	            uint64_t accum;
-		    for (j=0; j<DATA_SIZE; j+=2) 
-			accum += (uint8_t)*(lbuff_slot + j);
-	            *(lbuff_slot) = (uint8_t)accum;
+		    for (j=0; j<DATA_SIZE; j+=OBJECT_BYTE_STRIDE) 
+			accum += (uint64_t)*(lbuff_slot + j);
+	            *(lbuff_slot) = accum;
+		    //prepare new req
+                    luckyObj = rand() % num_objects;
+                    ctx_offset = luckyObj * sizeof(data_object_t);
 	        } else {	//Atomicity violation detected
                     call_magic_2_64(cq_tail, SABRE_ABORT, op_count_completed);
-                    //need to reschedule that op
-                    assert(!wq->q[wq_head].valid);
-	            lbuff_slot = (uint8_t *)(thread_buf_base + ((op_count_issued * sizeof(data_object_t)) % thread_buf_size));
-                    create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, wq->q[tid].offset, sizeof(data_object_t)>>6, (uint64_t)&(wq->q[wq_head]));
-                    call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
-                    op_count_issued++;
+                    //need to reschedule same op
+                    ctx_offset = wq->q[tid].offset;
 	        }
+	        lbuff_slot = (uint8_t *)(thread_buf_base + ((op_count_issued * sizeof(data_object_t)) % thread_buf_size));
+	        wq_head = wq->head;
+	        create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, sizeof(data_object_t)>>6, (uint64_t)&(wq->q[wq_head]));
+	        call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+		op_count_issued++;
+		wq->head =  wq->head + 1;
+		if (wq->head >= MAX_NUM_WQ) {
+ 		    	wq->head = 0;
+      			wq->SR ^= 1;
+    		}
             }
         } while (wq->q[wq_head].valid);
 
-	//Control number of outstanding requests
+	//issue a bunch or requests. Control number of outstanding requests
         while (op_count_issued - op_count_completed < CONC_ASYNC_OPS) { 
             luckyObj = rand() % num_objects;
 	    lbuff_slot = (uint8_t *)(thread_buf_base + ((op_count_issued * sizeof(data_object_t)) % thread_buf_size));
@@ -297,14 +307,11 @@ int main(int argc, char **argv)
     //register ctx and buffer sizes, only needed for the flexi version of the app; pass this info anyway
     call_magic_2_64(42, BUFFER_SIZE, buf_size);
     call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
-    fprintf(stdout,"Init done! Allocated %d objects of %lu bytes (pure object data = %d, total size = %lu bytes).\
-		\nLocal buffer size = %lu Bytes.\
-		\nWill now allocate per-thread QPs and run with %d reader threads (ASYNCS) and %d writer threads.\
-		\nEach thread will execute %d ops (reads or writes).\n", 
+    fprintf(stdout,"Init done! Allocated %d objects of %lu bytes (pure object data = %d, total size = %lu bytes).\nLocal buffer size = %lu Bytes.\nWill now allocate per-thread QPs and run with %d reader threads (ASYNCS) and %d writer threads.\nEach thread will execute %d ops (reads or writes).\nObject strided access: %d Bytes\n", 
 		num_objects, sizeof(data_object_t), DATA_SIZE, ctx_size, 
 		buf_size,
 		readers,writers,
-		iters);
+		iters, OBJECT_BYTE_STRIDE);
 
     //Now prepare the threads
     pthread_t *threads;
