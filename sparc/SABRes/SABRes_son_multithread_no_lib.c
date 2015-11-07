@@ -24,6 +24,9 @@
 #define CTX_ID 0
 #define DST_NID 1
 
+//#define MEASURE_TS //to measure the latency of the writers' critical section
+//#define MY_DEBUG
+
 //RMW for atomic lock acquirement
 static inline __attribute__ ((always_inline))
     uint8_t acquire_lock(volatile uint8_t *address) {
@@ -82,6 +85,9 @@ void * par_phase_write(void *arg) {
 			#endif
 		}
 	} while (prevLockVal);
+        #ifdef MEASURE_TS
+	call_magic_2_64(luckyObj, CS_START, i);	//signal the beginning of the CS
+        #endif
 	for (j=0; j<DATA_SIZE; j++) {
 		ctxbuff[luckyObj].value[j] ^= 1;
 	}

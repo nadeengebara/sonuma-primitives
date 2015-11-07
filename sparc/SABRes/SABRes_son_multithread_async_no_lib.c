@@ -78,7 +78,7 @@ void * par_phase_write(void *arg) {
 	do {
 		prevLockVal = acquire_lock(&(ctxbuff[luckyObj].lock));	//Test-and-set
 		if (prevLockVal) {
-		//	call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
+			call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
 			#ifdef MY_DEBUG
 			printf("thread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
 			usleep(10);
@@ -170,7 +170,7 @@ void * par_phase_read(void *arg) {
 
 //reader kernel    
     uint8_t success = 0, tid; 
-    for (i = 0; i<iters; i++) {
+    while (op_count_completed<iters) {
 
         //first, check for complete entries
         wq_head = wq->head;
