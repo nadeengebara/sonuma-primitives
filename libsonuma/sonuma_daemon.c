@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <sys/shm.h>
 
 #include "sonuma.h"
 
@@ -59,21 +60,12 @@ return spin_cycles;
 
 
 // global variable to switch Flexus to timing mode only once
-#define ALL_SET_IDS_NUM 8
-int was_called[ALL_SET_IDS_NUM];
-int prev_call_id    = 0; // must be from 0 to 7
-
-// global variable to switch Flexus to timing mode only once
- int is_timing = 0;
+int is_timing = 0;
 
 /////////////////////// IMPLEMENTATION //////////////////////////////
 int kal_open(char *kal_name) {
 #ifdef FLEXUS
-    DLog("[sonuma] kal_open called in FLEXUS mode.");
-    size_t i;
-    for (i = 0; i < ALL_SET_IDS_NUM; i++) {
-        was_called[i] = 0; // false
-    }
+    DLog("[sonuma] kal_open called in FLEXUS mode. Do nothing.");
     return 0; // not used with Flexus
 #else
     DLog("[sonuma] kal_open called in VM mode.");
@@ -87,24 +79,23 @@ int kal_open(char *kal_name) {
 }
 
 int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
-    int i, retcode;
+  //int i, retcode;
     // ustiugov: WARNING: due to some Flexus caveats we need a whole page
     //*wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, sizeof(rmc_wq_t));
+
+    /*
     *wq_ptr = (rmc_wq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
 
     //initialize the wq memory
     memset(*wq_ptr, 0, sizeof(rmc_wq_t));
     
     rmc_wq_t *wq = *wq_ptr;
-    memset(wq, 0, sizeof(PAGE_SIZE));
     if (wq == NULL) {
         DLog("[sonuma] Work Queue could not be allocated.");
         return -1;
     }
     //retcode = mlock((void *)wq, sizeof(rmc_wq_t));
-    retcode = mlock((void *)wq, PAGE_SIZE);	//Alex: so the application doesn't actually get to know if pin succeeded or not,
-						//and if you don't have debug messages enabled, you can't even deduce it by looking at the terminal
-						//Same issue with all mlocks in the library.
+    retcode = mlock((void *)wq, PAGE_SIZE);
     if (retcode != 0) {
         DLog("[sonuma] WQueue mlock returned %d", retcode);
     } else {
@@ -118,10 +109,10 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
     for(i=0; i<MAX_NUM_WQ; i++) {
         wq->q[i].SR = 0;
     }
-
+    */
 #ifdef FLEXUS
     DLog("[sonuma] Call Flexus magic call (WQUEUE).");
-    PASS2FLEXUS_CONFIG((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
+    call_magic_2_64((uint64_t)wq, WQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_wq called in VM mode.");
 #ifdef KERNEL_RMC
@@ -130,8 +121,19 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
       return -1;
     }
 #else
-    if(soft_rmc_wq_reg(*wq_ptr) < 0)
-	return -1;
+    FILE *f;
+    int shmid;
+    f = fopen("wq_ref.txt", "r");
+    fscanf(f, "%d", &shmid);
+    printf("[sonuma] ID for the work queue is %d\n", shmid);
+    *wq_ptr = (rmc_wq_t *)shmat(shmid, NULL, 0);
+    if(*wq_ptr == NULL) {
+      printf("[sonuma] shm attach failed (work queue)\n");
+    }
+
+    fclose(f);
+    //if(soft_rmc_wq_reg(*wq_ptr) < 0)
+    //return -1;
 #endif
 #endif /* FLEXUS */
 
@@ -139,12 +141,12 @@ int kal_reg_wq(int fd, rmc_wq_t **wq_ptr) {
 }
 
 int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
-    int i, retcode;
+  //int i, retcode;
     // ustiugov: WARNING: due to some Flexus caveats we need a whole page
     //*cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, sizeof(rmc_cq_t));
+    /*
     *cq_ptr = (rmc_cq_t *)memalign(PAGE_SIZE, PAGE_SIZE);
     rmc_cq_t *cq = *cq_ptr;
-    memset(cq, 0, sizeof(PAGE_SIZE));
     if (cq == NULL) {
         DLog("[sonuma] Completion Queue could not be allocated.");
         return -1;
@@ -163,9 +165,10 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
     for(i=0; i<MAX_NUM_WQ; i++) {
         cq->q[i].SR = 0;
     }
+    */
 #ifdef FLEXUS
     DLog("[sonuma] Call Flexus magic call (CQUEUE).");
-    PASS2FLEXUS_CONFIG((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
+    call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
 #else
     DLog("[sonuma] kal_reg_cq called in VM mode.");
 #ifdef KERNEL_RMC
@@ -175,8 +178,19 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
         return -1;
     }
 #else
-    if(soft_rmc_cq_reg(*cq_ptr) < 0)
-	return -1;
+    FILE *f;
+    int shmid;
+    f = fopen("cq_ref.txt", "r");
+    fscanf(f, "%d", &shmid);
+    printf("[sonuma] ID for the completion queue is %d\n", shmid);
+    *cq_ptr = (rmc_cq_t *)shmat(shmid, NULL, 0);
+    if(*cq_ptr == NULL) {
+      printf("[sonuma] shm attach failed (completion queue)\n");
+    }
+
+    fclose(f);
+    //if(soft_rmc_cq_reg(*cq_ptr) < 0)
+    //return -1;
 #endif
 #endif /* FLEXUS */
 
@@ -184,16 +198,30 @@ int kal_reg_cq(int fd, rmc_cq_t **cq_ptr) {
 }
 
 int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
-    uint64_t buff_size = num_pages * PAGE_SIZE;
-    uint8_t *buff = *buff_ptr;
+  //uint64_t buff_size = num_pages * PAGE_SIZE;
     if(*buff_ptr == NULL) {
 	//buff hasn't been allocated in the main application code
 	printf("[soft_rmc] local buffer memory hasn't been allocated.. allocating\n");
 #ifdef FLEXUS
-	buff = memalign(PAGE_SIZE, buff_size*sizeof(uint8_t));
+	uint8_t *buff = *buff_ptr;
+	buff = memalign(PAGE_SIZE, buf_size*sizeof(uint8_t));
 #else
 	//*buff_ptr = (uint8_t *)malloc(buff_size * sizeof(uint8_t));
-	posix_memalign((void **)buff_ptr, PAGE_SIZE, buff_size*sizeof(char));
+	//posix_memalign((void **)buff_ptr, PAGE_SIZE, buff_size*sizeof(char));
+	FILE *f;
+	int shmid;
+	f = fopen("local_buf_ref.txt", "r");
+	fscanf(f, "%d", &shmid);
+	printf("[sonuma] ID for the local buffer is %d\n", shmid);
+	*buff_ptr = (uint8_t *)shmat(shmid, NULL, 0);
+	if(*buff_ptr == NULL) {
+	  printf("[sonuma] shm attach failed (local buffer)\n");	  
+	  return -1;
+	}
+
+	memset(*buff_ptr, 0, 4096);
+	
+	fclose(f);	
 #endif
 	if (*buff_ptr == NULL) {
 	    fprintf(stdout, "Local buffer could not be allocated.\n");
@@ -217,22 +245,14 @@ int kal_reg_lbuff(int fd, uint8_t **buff_ptr, uint32_t num_pages) {
         buff[i] = 0;
         if ( (i % PAGE_SIZE) == 0) {
             counter = i*sizeof(uint8_t)/PAGE_SIZE;
-            /*
-            retcode = mlock((void *)&(buff[i]), buff_size * sizeof(uint8_t));
-            if (retcode != 0) {
-                DLog("[sonuma] Local buffer %p mlock returned %d (buffer size = %"PRIu64" bytes)", *buff_ptr, retcode, buff_size);
-            } else {
-                DLog("[sonuma] Local buffer was pinned successfully.");
-            }
-            */
             // map the buffer's pages in Flexus
-            PASS2FLEXUS_CONFIG((uint64_t)&(buff[i] ), BUFFER, counter);
+            call_magic_2_64((uint64_t)&(buff[i] ), BUFFER, counter);
         }
     }
    
 #ifdef FLEXI_MODE
     DLog("[sonuma] Call Flexus magic call (BUFFER_SIZE).");
-    PASS2FLEXUS_CONFIG(42, BUFFER_SIZE, buff_size); // register local buffer
+    call_magic_2_64(42, BUFFER_SIZE, buff_size); // register local buffer
 #endif /* FLEXI_MODE */
 
 #else
@@ -260,7 +280,7 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     //assert(ctx_ptr != NULL);
    
 #ifdef FLEXUS
-    int i, retcode;
+    int i, retcode, counter;
     uint8_t *ctx = *ctx_ptr;
     int ctx_size = num_pages * PAGE_SIZE;
     if(ctx == NULL)
@@ -270,31 +290,24 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
     if (retcode != 0) {
         DLog("[sonuma] Context buffer mlock returned %d", retcode);
     } else {
-        DLog("[sonuma] Context buffer (size=%d, %d pages) was pinned successfully in Flexus.", ctx_size, num_pages);
+        DLog("[sonuma] Context buffer (size=%d, %d pages) was pinned successfully.", ctx_size, num_pages);
     }
 
+    counter = 0;
     //initialize the context buffer
-    
+    ctx[0] = DEFAULT_CTX_VAL;
+    call_magic_2_64((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
     for(i = 0; i < (ctx_size*sizeof(uint8_t)); i++) {
-#ifdef DEBUG_PERF
         *(ctx + i) = DEFAULT_CTX_VAL;
-#else
-        // ustiugov: this is a workaround to bring the context pages to the page table
-        volatile uint8_t temp = *(ctx + i);
-        *(ctx + i) = DEFAULT_CTX_VAL;
-        *(ctx + i) = temp;
-#endif
-        if (i == 0)
-            PASS2FLEXUS_CONFIG((uint64_t)ctx, CONTEXTMAP, 0); // a single context #0 for each node now
         if ( (i % PAGE_SIZE) == 0) {
             // map the context's pages in Flexus
-            PASS2FLEXUS_CONFIG((uint64_t)&(ctx[i]), CONTEXT, i);
+            call_magic_2_64((uint64_t)&(ctx[i]), CONTEXT, i);
         }
     }
 
 #ifdef FLEXI_MODE
     DLog("[sonuma] Call Flexus magic call (CONTEXT_SIZE).");
-    PASS2FLEXUS_CONFIG(42, CONTEXT_SIZE, ctx_size); // register ctx
+    call_magic_2_64(42, CONTEXT_SIZE, ctx_size); // register ctx
 #endif /* FLEXI_MODE */
 
 #else // Linux, not flexus
@@ -312,9 +325,26 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 
     ((int *)ctx)[0] = tmp;
 #else //USER RMC (SOFT RMC)
+    FILE *f;
+    int shmid;
+    
     if(*ctx_ptr == NULL) {
-	if(soft_rmc_ctx_alloc((char **)ctx_ptr, num_pages) < 0)
-	    return -1;
+      f = fopen("ctx_ref.txt", "r");
+      fscanf(f, "%d", &shmid);
+      printf("[sonuma] ID for the context memory is %d\n", shmid);
+      *ctx_ptr = (uint8_t *)shmat(shmid, NULL, 0);
+
+      if(*ctx_ptr == NULL) {
+	printf("[sonuma] shm attach failed (context)\n");
+	return -1;
+      }
+
+      memset(*ctx_ptr, 0, 4096);
+      
+      fclose(f);
+      
+      //if(soft_rmc_ctx_alloc((char **)ctx_ptr, num_pages) < 0)
+      //    return -1;
     } else {
 	DLog("[sonuma] error: context memory allready allocated\n");
 	return -1;
@@ -327,7 +357,7 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages) {
 
 void flexus_signal_all_set() {
 #ifdef FLEXUS
-    if (is_timing == 0) {
+  if (is_timing == 0) {
 #ifdef DEBUG_FLEXUS_STATS
         // global variables for sonuma operation counters
         op_count_issued = 0;
@@ -335,18 +365,18 @@ void flexus_signal_all_set() {
 #endif
         
         DLog("[sonuma] Call Flexus magic call (ALL_SET).");
-        //call_magic_2_64(1, ALL_SET, 1);
-        call_magic_sim_break(1, ALL_SET, 1);
+        call_magic_2_64(1, ALL_SET, 1);
         is_timing = 1;
     } else {
-        //DLog("[sonuma] (ALL_SET) magic call with ID=%d won't be called more than once.", id);
+        DLog("[sonuma] (ALL_SET) magic call won't be called more than once.");
     }
 #else
-    DLog("[sonuma] flexus_signal_all_set called in VM mode. Do nothing.");
+  DLog("[sonuma] flexus_signal_all_set called in VM mode. Do nothing.");
     // otherwise do nothing
 #endif /* FLEXUS */
-}
+    }
 
+/*
 int rmc_init(int node_cnt, int this_nid) {
 #ifndef FLEXUS
     qp_info_t * qp_info = (qp_info_t *)malloc(sizeof(qp_info_t));
@@ -374,3 +404,4 @@ void rmc_deinit() {
     
 #endif
 }
+*/

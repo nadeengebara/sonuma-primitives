@@ -17,12 +17,21 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h> // memset func
+#include <assert.h>
 
 #include "RMCdefines.h"
 
 #ifdef FLEXUS
     #include "magic_iface.h"
     #include "son_asm.h"
+    // ustiugov: WARNING!!! DEBUG_PERF enables I/O in performance regions (it uses DLogPerf)!
+    //           Do not enable during experiments!
+    //#define DEBUG_PERF
+    // ustiugov: WARNING!!! DEBUG_STATS enable additional Flexus stats in measurement 
+    //           phase that impacts the measurements. Do not enable during experiments!
+    //#define DEBUG_FLEXUS_STATS
+    //ALEX: for latency measurements; these should introduce minimal overhead (4 non-mem instructions)
+    #define STATS_BREAKPOINTS
 #else
     #include "soft_rmc.h"
 #endif
@@ -67,16 +76,22 @@
 #define DLogPerf(M, ...)
 #endif
 
+
+//ALEX - WARNING: race conditions when having multiple threads
 #ifdef DEBUG_FLEXUS_STATS
 // global variables for sonuma operation counters
-extern uint64_t op_count_issued;
-extern uint64_t op_count_completed;
+ extern uint64_t op_count_issued;
+ extern uint64_t op_count_completed;
 #endif
 
-static pthread_t rmc_thread;
+//static pthread_t rmc_thread;
 
-typedef void (async_handler)(uint8_t tid, wq_entry_t head, void *owner);
+typedef void (async_handler)(uint8_t tid, wq_entry_t *head, void *owner);
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+    
 /**
  * VM infra only!!!
  * This func opens connection with kernel driver (KAL).
@@ -114,14 +129,13 @@ int kal_reg_ctx(int fd, uint8_t **ctx_ptr, uint32_t num_pages);
 /**
  * @usage This func signals Flexus to interrupt fast simulation and start clock precise modelling.
  *
- * @param id            id that must be unique for each invocation place of this func
  */
-void flexus_signal_all_set(int id);
+void flexus_signal_all_set();
 
 /**
  * This func initializes the Soft RMC.
  */
-int rmc_init(int node_cnt, int this_nid, rmc_wq_t *wq, rmc_cq_t *cq, uint8_t *ctx_mem);
+int rmc_init(int node_cnt, int this_nid);
 
 /**
  * This func deinitialized the Soft RMC
@@ -131,7 +145,7 @@ void rmc_deinit();
 /**
  * This func checks completed requests in CQ.
  */
-inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) __attribute__((always_inline));
+//inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) __attribute__((always_inline));
 
 /**
  * @usage This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ.
@@ -143,7 +157,8 @@ inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, voi
  * @param ctx_offset    context offset in bytes
  * @param length        object length (bytes)
  */
-inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
+//inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
+
 
 /**
  * @usage This func polls for a free entry in WQ and, then, adds a Remote Read request to WQ and waits for its completion.
@@ -156,7 +171,20 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
  * @param ctx_offset    context offset in bytes
  * @param length        object length (bytes)
  */
-inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
+//inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
+
+/**
+ * @usage This func polls for a free entry in WQ and, then, adds a SABRe request to WQ and waits for its completion.
+ *
+ * @param wq            pointer to WQ
+ * @param cq            pointer to CQ
+ * @param lbuff_slot    pointer to local buffer
+ * @param snid          destination node (positive integer)
+ * @param ctx_id        context identifier (positive integer)
+ * @param ctx_offset    context offset in bytes
+ * @param length        object length (bytes)
+ */
+//inline void rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
 /**
  * @usage This func polls for a free entry in WQ and, then, adds a Remote Write request to WQ.
@@ -168,14 +196,17 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
  * @param ctx_offset    context offset in bytes
  * @param length        object length (bytes)
  */
-inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
+//inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) __attribute__((always_inline));
 
+#ifdef __cplusplus
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////// Inline methods implementation ///////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) {
+static inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, void *owner) {
 #ifdef FLEXUS
     //DLogPerf("[sonuma] rmc_check_cq called in Flexus mode."); // temporary disabled
 #else
@@ -206,30 +237,36 @@ inline void rmc_check_cq(rmc_wq_t *wq, rmc_cq_t *cq, async_handler *handler, voi
             DLogPerf("[sonuma] Call Flexus magic call (WQENTRYDONE).");
             PASS2FLEXUS_CONFIG(tid, WQENTRYDONE, op_count_completed);
             DLogPerf("Checking CQ %"PRIu64" time...", op_count_completed);
+#elif defined(STATS_BREAKPOINTS)
+            PASS2FLEXUS_CONFIG(tid, WQENTRYDONE, 0);
 #endif
             cq_tail = cq->tail;
-            handler(tid, wq->q[wq_head], owner);
+
+            handler(tid, &(wq->q[tid]), owner); //snovakov:changed wq_head to tid in wq->q[], also, passing address now
         }
     } while (wq->q[wq_head].valid);
 }
 
-inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+static inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifndef FLEXUS
     DLogPerf("[sonuma] rmc_rread_async called in VM mode.");
 #endif
 
+    uint8_t wq_head = wq->head;
+    
 #ifdef FLEXUS
     DLogPerf("[sonuma] rmc_rread_async called in Flexus mode.");
-    uint8_t wq_head = wq->head;
     length = length / BLOCK_SIZE; // number of cache lines
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 
-#ifdef DEBUG_FLEXUS_STATS
+#if defined(DEBUG_FLEXUS_STATS)
     op_count_issued++;
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
     DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
     PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
-#endif
+#elif defined(STATS_BREAKPOINTS)
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, 0);
+#endif /* DEBUG_FLEXUS_STATS or STATS_BREAKPOINTS */
 
 #else // Linux below
     wq->q[wq_head].buf_addr = lbuff_slot;
@@ -254,7 +291,7 @@ inline void rmc_rread_async(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_
     }
 }
 
-inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+static inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifdef FLEXUS
     DLogPerf("[sonuma] rmc_rread_sync called in Flexus mode.");
 #else
@@ -278,10 +315,25 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
     create_wq_entry(RMC_READ, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
 //#endif
 
-#ifdef DEBUG_FLEXUS_STATS
+#if defined(DEBUG_FLEXUS_STATS) 
     PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
+#elif defined(STATS_BREAKPOINTS)
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, 0);
 #endif
 
+#else // Linux below
+    wq->q[wq_head].buf_addr = lbuff_slot;
+    wq->q[wq_head].cid = ctx_id;
+    wq->q[wq_head].offset = ctx_offset;
+    if(length < 64)
+	wq->q[wq_head].length = 64; //at least 64B
+    else
+	wq->q[wq_head].length = length; //specify the length of the transfer
+    wq->q[wq_head].op = 'r';
+    wq->q[wq_head].nid = snid;
+    //soNUMA v2.1
+    wq->q[wq_head].valid = 1;
+    wq->q[wq_head].SR = wq->SR;
 #endif /* FLEXUS */
 
     wq->head =  wq->head + 1;
@@ -291,7 +343,8 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
         wq->SR ^= 1;
     }
 
-    cq_tail = cq->tail;
+    //printf("[sonuma] scheduled remote read\n");
+    //cq_tail = cq->tail;
 
 //#ifndef FAKE_READS
     // wait for a completion of the entry
@@ -301,11 +354,15 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
 //    memset( (void *)lbuff_slot, 0, length*BLOCK_SIZE);
 //#endif
 
+    //printf("[sonuma] remote read completed\n");
+    
     // mark the entry as invalid, i.e. completed
     wq->q[cq->q[cq_tail].tid].valid = 0;
-#ifdef DEBUG_FLEXUS_STATS
+#if defined(DEBUG_FLEXUS_STATS)
     op_count_completed++;
     PASS2FLEXUS_CONFIG(cq_tail, WQENTRYDONE, op_count_completed);
+#elif defined(STATS_BREAKPOINTS)
+    PASS2FLEXUS_CONFIG(cq_tail, WQENTRYDONE, 0);
 #endif
     cq->tail = cq->tail + 1;
 
@@ -314,10 +371,94 @@ inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int 
         cq->tail = 0;
         cq->SR ^= 1;
     }    
-
 }
 
-inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+// ustiugov: introduced in API 2.2
+//returns 1 on success, 0 on fail
+static uint8_t rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
+#ifdef FLEXUS
+    DLogPerf("[sonuma] rmc_sabre_sync called in Flexus mode.");
+#else
+    DLogPerf("[sonuma] rmc_sabre_sync called in VM mode.");
+#endif
+    uint8_t wq_head = wq->head;
+    uint8_t cq_tail = cq->tail;
+
+#ifdef FLEXUS
+
+#ifdef DEBUG_FLEXUS_STATS
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY_START, op_count_issued);
+    DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
+    op_count_issued++;
+#endif
+
+    DLogPerf("lbuff_slot: %"PRIu64" snid: %u ctx_id: %lu ctx_offset %"PRIu64" length: %"PRIu64, lbuff_slot, snid, ctx_id, ctx_offset, length);
+
+    length = length / BLOCK_SIZE; // number of cache lines
+    create_wq_entry(RMC_SABRE, wq->SR, (uint8_t)ctx_id, (uint16_t)snid, lbuff_slot, ctx_offset, length, (uint64_t)&(wq->q[wq_head]));
+
+#ifdef DEBUG_FLEXUS_STATS
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
+#elif defined(STATS_BREAKPOINTS)
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, 0);
+#endif
+
+#else // Linux below
+    wq->q[wq_head].buf_addr = lbuff_slot;
+    wq->q[wq_head].cid = ctx_id;
+    wq->q[wq_head].offset = ctx_offset;
+
+    if(length < 64)
+	wq->q[wq_head].length = 64; //at least 64B
+    else
+        wq->q[wq_head].length = length; //specify the length of the transfer
+    wq->q[wq_head].op = 'r';
+    wq->q[wq_head].nid = snid;
+    //soNUMA v2.1
+    wq->q[wq_head].valid = 1;
+    wq->q[wq_head].SR = wq->SR;
+#endif /* FLEXUS */
+
+    wq->head =  wq->head + 1;
+    // check if WQ reached its end
+    if (wq->head >= MAX_NUM_WQ) {
+        wq->head = 0;
+        wq->SR ^= 1;
+    }
+
+    //printf("[sonuma] scheduled remote read\n");
+    //cq_tail = cq->tail;
+
+    // wait for a completion of the entry
+    while(cq->q[cq_tail].SR != cq->SR) {
+    }
+
+    //printf("[sonuma] remote read completed\n");
+    
+#ifdef STATS_BREAKPOINTS 
+    if (cq->q[cq_tail].success) {	//No atomicity violation!
+        PASS2FLEXUS_CONFIG(cq_tail, SABRE_SUCCESS, 0);
+    } else {	//Atomicity violation detected
+        PASS2FLEXUS_CONFIG(cq_tail, SABRE_ABORT, 0);
+    }
+    
+//    op_count_completed++;
+//    call_magic_2_64(cq_tail, WQENTRYDONE, op_count_completed);	//ALEX - redundant
+#endif
+    
+    // mark the entry as invalid, i.e. completed
+    wq->q[cq->q[cq_tail].tid].valid = 0;
+    cq->tail = cq->tail + 1;
+
+    // check if WQ reached its end
+    if (cq->tail >= MAX_NUM_WQ) {
+        cq->tail = 0;
+        cq->SR ^= 1;
+    }    
+    return cq->q[cq_tail].success;
+}
+
+static inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifdef FLEXUS
     DLogPerf("[sonuma] rmc_rwrite called in Flexus mode.");
 #else
@@ -339,6 +480,8 @@ inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx
     DLogPerf("Added an entry to WQ %"PRIu64" time...", op_count_issued);
     DLogPerf("[sonuma] Call Flexus magic call (NEWWQENTRY).");
     PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, op_count_issued);
+#elif defined(STATS_BREAKPOINTS)
+    PASS2FLEXUS_CONFIG(wq_head, NEWWQENTRY, 0);
 #endif
 
     wq->head =  wq->head + 1;

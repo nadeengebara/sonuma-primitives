@@ -166,6 +166,7 @@ static inline __attribute__ ((always_inline))
         return ret_value;
     }
 
+
 static inline __attribute__ ((always_inline))
     uint64_t  call_magic_2_64(uint64_t son_function, uint64_t arg1, uint64_t arg2){
         uint64_t  ret_value;

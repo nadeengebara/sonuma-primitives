@@ -15,7 +15,7 @@
 #include <math.h>
 #include <sys/mman.h>
 #include "libsonuma/sonuma.h"
-#include "magic_iface.h"
+#include "libsonuma/magic_iface.h"
 
 #define ITERS 100000
 

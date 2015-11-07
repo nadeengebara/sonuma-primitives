@@ -10,8 +10,18 @@
 
 //#define FLEXI_MODE  // do not use flexi mode unless for flexus ubenches
 #define FLEXUS
+#define PROTOCOL_v2_2
 
-#define MAX_NUM_WQ      128
+#ifdef FLEXUS
+//#ifdef PROTOCOL_v2_2
+//#define MAX_NUM_WQ 256
+//#else
+#define MAX_NUM_WQ 128
+//#endif
+#else
+#define MAX_NUM_WQ 100
+#endif
+
 #define DEFAULT_CTX_VAL 123
 
 #ifdef FLEXUS
@@ -34,21 +44,33 @@
 #define NETPIPE_START       16
 #define NETPIPE_END         17
 #define RMC_DEBUG_BP        18
-#define PAGERANK_END        19
+#define BENCHMARK_END       19
 #define BUFFER_SIZE         20
 #define CONTEXT_SIZE        21
 #define NEWWQENTRY_START    22
+#define NEW_SABRE           23
+#define SABRE_SUCCESS       24
+#define SABRE_ABORT         25
+#define OBJECT_WRITE        26	//used by writers in SABRe experiments, to count number of object writes
+#define LOCK_SPINNING	    27
 
 extern const char* br_points[];
-#endif /* FLEXUS */
 
 //stuff for Page Walks
+//PT parameters for Page Walks
 #define PT_I 3
 #define PT_J 10
 #define PT_K 4
 
+#endif /* FLEXUS */
+
+#ifdef FLEXUS
 #define PAGE_SIZE 8192
 #define PAGE_BITS 0xffffffffffffe000
+#else
+#define PAGE_SIZE 4096
+#define PAGE_BITS 0xfffffffffffff000
+#endif
 
 //WQ entry field offsets - for non-compacted version
 #define WQ_TYPE_OFFSET          0
@@ -63,6 +85,7 @@ extern const char* br_points[];
 #define RMC_READ        1
 #define RMC_WRITE       2
 #define RMC_RMW         3
+#define RMC_SABRE	4
 #define RMC_INVAL       42
 #define PADBYTES        60
 
@@ -104,7 +127,7 @@ typedef struct wq_entry{
     //first double-word (8 bytes)
     uint8_t op;        //up to 64 soNUMA ops
     volatile uint8_t SR;        //sense reverse bit
-    uint8_t valid;    //set with a new WQ entry, unset when entry completed. Required for pipelining async ops
+    volatile uint8_t valid;    //set with a new WQ entry, unset when entry completed. Required for pipelining async ops
     uint64_t buf_addr;
     uint8_t cid;
     uint16_t nid;
@@ -114,16 +137,40 @@ typedef struct wq_entry{
 } wq_entry_t;
 #endif /* FLEXUS */
 
+
+#ifdef FLEXUS
+#ifdef PROTOCOL_v2_2
+typedef struct cq_entry{
+    volatile uint8_t SR : 1;     //sense reverse bit
+    volatile uint8_t success : 7; //only one bit actually used. 0 means failure
+    volatile uint8_t tid;
+} cq_entry_t;
+#else
 typedef struct cq_entry{
     volatile uint8_t SR : 1;     //sense reverse bit
     volatile uint8_t tid : 7;
 } cq_entry_t;
+#endif
+#else
+typedef struct cq_entry{
+    volatile uint8_t SR;     //sense reverse bit
+    volatile uint8_t tid;
+} cq_entry_t;
+#endif
 
+#ifdef FLEXUS
 typedef struct rmc_wq {
     wq_entry_t q[MAX_NUM_WQ];
     uint8_t head;
     uint8_t SR : 1;    //sense reverse bit
 } rmc_wq_t;
+#else
+typedef struct rmc_wq {
+    wq_entry_t q[MAX_NUM_WQ];
+    uint8_t head;
+    volatile uint8_t SR;    //sense reverse bit
+} rmc_wq_t;
+#endif
 
 #ifdef FLEXUS
 typedef struct rmc_cq {
@@ -135,14 +182,11 @@ typedef struct rmc_cq {
 typedef struct rmc_cq {
     cq_entry_t q[MAX_NUM_WQ];
     uint8_t tail;
-    uint8_t SR;    //sense reverse bit
+    volatile uint8_t SR;    //sense reverse bit
 } rmc_cq_t;
 #endif
 
 typedef struct qp_info {
-    rmc_wq_t *wq;
-    rmc_cq_t *cq;
-    uint8_t *ctx_mem;
     int node_cnt;
     int this_nid;
 } qp_info_t;
