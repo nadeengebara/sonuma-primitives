@@ -57,15 +57,13 @@ inline nam_cl_version_t version_get_cl_version_bits(nam_version_t version) {
 //#define MY_DEBUG
 
 //RMW for atomic lock acquirement
-static inline __attribute__ ((always_inline))
-    uint8_t acquire_lock(volatile uint8_t *address) {
+static inline uint8_t acquire_lock(volatile uint8_t *ptr) {
         uint8_t ret_value;
-        __asm__ __volatile__ (
-                "ldstub [%1], %%l0\n\t"
-                "mov %%l0, %0\n\t"  
+        asm volatile(
+                "ldstub [%1], %0\n\t"
                 : "=r"(ret_value)    //output
-                : "r"(address)    //input registers
-            	: "%l0", "memory" //clobbered registers
+                : "r"(ptr)    //input registers
+            	: "memory" //clobbered registers
                 );
          return ret_value;
     }
@@ -165,7 +163,7 @@ inline int fast_memcpy_from_nam_buf(void *obj, void *buf, uintptr_t nam, size_t 
         }
     }
 
-    // check the cache line version inthe last cache line
+    // check the cache line version in the last cache line
     if(size > 0) {
         // check the version and return 0 immediately if it doesn't match
         if(*(nam_cl_version_t *)src != hdrver) {
@@ -311,8 +309,9 @@ void * par_phase_read(void *arg) {
     thread_buf_base = lbuff + thread_buf_size * p->id; //this is the local buffer's base address for this thread
 
 //reader kernel    
-    uint8_t success = 0; 
+    uint8_t success; 
     for (i = 0; i<iters; i++) {
+        success = 0;
         PASS2FLEXUS_MEASURE(i, MEASUREMENT, 0);
         luckyObj = rand() % num_objects;
         lbuff_slot = (uint8_t *)(thread_buf_base + ((luckyObj * sizeof(data_object_t)) % thread_buf_size));
@@ -482,7 +481,9 @@ int main(int argc, char **argv)
 		if (error) {
 			printf("Could not bind writer thread %d to core %d! (error %d)\n", i, core, error);
 	      	} else {
+			#ifdef MY_DEBUG
 			printf("Bound writer thread %d to core %d\n", i, core);
+			#endif
        	 	}
         }	
     }
