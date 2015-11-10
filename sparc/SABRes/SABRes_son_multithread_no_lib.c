@@ -21,7 +21,7 @@
 #define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
 #define DEBUG_ASSERT(...)
 #define MIN(a,b) (((a)<(b))?(a):(b))
-#define APP_BUFF_SIZE PAGE_SIZE
+#define APP_BUFF_SIZE (PAGE_SIZE*2)
 
 #define ITERS 100000000
 //#define DATA_SIZE 1024	//in bytes <- ustiugov: add to compiler options -D DATA_SIZE=<value>
@@ -341,7 +341,7 @@ void * par_phase_read(void *arg) {
                 call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
 
                 PASS2FLEXUS_MEASURE(i, MEASUREMENT, 20);
-                fast_memcpy_from_nam_buf((void*)app_buff, (void*)lbuff_slot, (uintptr_t) lbuff_slot, payload_cache_blocks);
+                fast_memcpy_from_nam_buf((void*)app_buff, (void*)lbuff_slot, (uintptr_t) lbuff_slot, payload_cache_blocks*CACHE_LINE_SIZE);
                 PASS2FLEXUS_MEASURE(i, MEASUREMENT, 30);
                 /*
                 //touch the data
