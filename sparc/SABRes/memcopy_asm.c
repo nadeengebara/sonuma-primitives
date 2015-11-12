@@ -23,6 +23,8 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define APP_BUFF_SIZE (PAGE_SIZE*2)
 
+#define LLC_SIZE (4*1024*1024)
+
 #define ITERS 100000000
 //#define DATA_SIZE 1024	//in bytes <- ustiugov: add to compiler options -D DATA_SIZE=<value>
 #define OBJECT_BYTE_STRIDE 128  //how much of the object will be touched by readers/writers (128 -> 50% (half of the blocks))
@@ -230,8 +232,10 @@ void my_memcopy_asm(void *dst, void *src, int size) {
     }
 }
 
-void my_memcopy_asm_unroll(void *dst, void *src, int size) {
+//static inline __attribute__ ((always_inline))
+void my_memcopy_asm_unroll(void *dst, void *src, int size, int k) {
     int i, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
     for (i=0; i < 8; i++) {
         // by 8 byte
         __asm__ __volatile__ (
@@ -275,6 +279,95 @@ void my_memcopy_asm_unroll(void *dst, void *src, int size) {
         dst+=8;
         src+=8;
     }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+}
+
+void my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
+    int i=0, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+        // by 8 byte
+        __asm__ __volatile__ (
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                "ldd [%1+128], %%f4\n\t"
+                "ldd [%1+192], %%f6\n\t"
+                "ldd [%1+256], %%f8\n\t"
+                "ldd [%1+320], %%f10\n\t"
+                "ldd [%1+384], %%f12\n\t"
+                "ldd [%1+448], %%f14\n\t"
+                "ldd [%1+512], %%f16\n\t"
+                "ldd [%1+576], %%f18\n\t"
+                "ldd [%1+640], %%f20\n\t"
+                "ldd [%1+704], %%f22\n\t"
+                "ldd [%1+768], %%f24\n\t"
+                "ldd [%1+832], %%f26\n\t"
+                "ldd [%1+896], %%f28\n\t"
+                "ldd [%1+960], %%f30\n\t"
+                "std %%f0, [%2]\n\t"
+                "std %%f2, [%2+64]\n\t"
+                "std %%f4, [%2+128]\n\t"
+                "std %%f6, [%2+192]\n\t"
+                "std %%f8, [%2+256]\n\t"
+                "std %%f10, [%2+320]\n\t"
+                "std %%f12, [%2+384]\n\t"
+                "std %%f14, [%2+448]\n\t"
+                "std %%f16, [%2+512]\n\t"
+                "std %%f18, [%2+576]\n\t"
+                "std %%f20, [%2+640]\n\t"
+                "std %%f22, [%2+704]\n\t"
+                "std %%f24, [%2+768]\n\t"
+                "std %%f26, [%2+832]\n\t"
+                "std %%f28, [%2+896]\n\t"
+                "std %%f30, [%2+960]\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7"   /* clobbered registers*/
+                );
+        //*(size_t*)dst = *(size_t*)src;
+    for (i=0; i < 4; i++) {
+        __asm__ __volatile__ (
+//                "ldd [%1], %%f0\n\t"
+                "ldd [%1+8], %%f2\n\t"
+                "ldd [%1+16], %%f4\n\t"
+                "ldd [%1+24], %%f6\n\t"
+                "ldd [%1+32], %%f8\n\t"
+                "ldd [%1+40], %%f10\n\t"
+                "ldd [%1+48], %%f12\n\t"
+                "ldd [%1+56], %%f14\n\t"
+
+                "ldd [%1+72], %%f16\n\t"
+                "ldd [%1+80], %%f18\n\t"
+                "ldd [%1+88], %%f20\n\t"
+                "ldd [%1+96], %%f22\n\t"
+                "ldd [%1+104], %%f24\n\t"
+                "ldd [%1+112], %%f26\n\t"
+                "ldd [%1+120], %%f28\n\t"
+//                "ldd [%1+], %%f30\n\t"
+//                "std %%f0, [%2]\n\t"
+                "std %%f2, [%2+8]\n\t"
+                "std %%f4, [%2+16]\n\t"
+                "std %%f6, [%2+24]\n\t"
+                "std %%f8, [%2+32]\n\t"
+                "std %%f10, [%2+40]\n\t"
+                "std %%f12, [%2+48]\n\t"
+                "std %%f14, [%2+56]\n\t"
+
+                "std %%f16, [%2+72]\n\t"
+                "std %%f18, [%2+80]\n\t"
+                "std %%f20, [%2+88]\n\t"
+                "std %%f22, [%2+96]\n\t"
+                "std %%f24, [%2+104]\n\t"
+                "std %%f26, [%2+112]\n\t"
+                "std %%f28, [%2+120]\n\t"
+//                "std %%f30, [%2+960]\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7"   /* clobbered registers*/
+                );
+        dst+=128;
+        src+=128;
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
 }
 
 void * par_phase_write(void *arg) {
@@ -383,6 +476,23 @@ void * par_phase_read(void *arg) {
     }
     call_magic_2_64((uint64_t)cq, CQUEUE, MAX_NUM_WQ);
 
+    //////////////////////////////
+    uint64_t *bogus_buff;
+    uint64_t temp;
+    bogus_buff = memalign(PAGE_SIZE, LLC_SIZE);
+    for(i=0; i<LLC_SIZE; i+=64) {
+        temp += ( (uint8_t *)(bogus_buff) )[i];
+    }
+    int obj_buf_size_ = num_objects*sizeof(data_object_t);
+    for(i=0; i<obj_buf_size_; i+=64) {
+        temp += ( (uint8_t *)(ctxbuff) )[i];
+    }
+    for(i=0; i<APP_BUFF_SIZE; i+=64) {
+        temp += ( (uint8_t *)(app_buff) )[i];
+    }
+    //printf("LOL\n");
+    printf("%x", temp);
+    //////////////////////////////
 
     int j,luckyObj;
     srand(p->id);		//remove this for lots of conflicts :-)
@@ -395,18 +505,26 @@ void * par_phase_read(void *arg) {
     thread_buf_base = lbuff + thread_buf_size * p->id; //this is the local buffer's base address for this thread
 
 //reader kernel    
+int k = 0, z = 1;
     uint8_t success; 
     for (i = 0; i<iters; i++) {
+/*
         success = 0;
         PASS2FLEXUS_MEASURE(i, MEASUREMENT, 0);
         luckyObj = rand() % num_objects;
         lbuff_slot = (uint8_t *)(thread_buf_base + ((luckyObj * sizeof(data_object_t)) % thread_buf_size));
         ctx_offset = luckyObj * 1024;//sizeof(data_object_t);
         wq_head = wq->head;
-            
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 20);
-        my_memcopy_asm_unroll((void*)app_buff, (void*)((char*)ctxbuff+ctx_offset), 1024);
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 30);
+*/
+
+        //my_memcopy_asm_unroll((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
+        my_memcopy_asm_unroll_coalesc((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
+
+
+        for(k=0; k<300; k++) {
+            z = k*z;
+        }
+
 /*
         while (!success) {	//read the object again if it's not consistent
             create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
@@ -452,6 +570,7 @@ void * par_phase_read(void *arg) {
         //PASS2FLEXUS_MEASURE(i, MEASUREMENT, 40);
 
     }
+    printf("%d", z);
     call_magic_2_64(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
     free(wq);
     free(cq);
@@ -493,15 +612,16 @@ int main(int argc, char **argv)
     unsigned *dst = memalign(PAGE_SIZE, PAGE_SIZE);
     unsigned *src = memalign(PAGE_SIZE, PAGE_SIZE);
     memset(src, 0xab, PAGE_SIZE);
-    my_memcopy_asm_unroll(dst, src, 1024);
+    //my_memcopy_asm_unroll(dst, src, 1024);
+    //my_memcopy_asm_unroll_coalesc(dst, src, 1024, 0);
     //my_memcopy_asm(dst, src, 1024);
-    //memcpy(dst, src, 1024);
+    memcpy(dst, src, 1024);
 
     for (i=0; i<512; i+=2) {
         printf("%x - %x\n", dst[i], src[i]);
     }
     exit(0);
-    */
+ */   
 
     //////////////////////////////////////////
     
