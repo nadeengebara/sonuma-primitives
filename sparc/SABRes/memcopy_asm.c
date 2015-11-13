@@ -110,7 +110,10 @@ pthread_barrier_t   barrier;
  *  We assume data_object_t layout with cl_versions for src.
  *  Currently, we assume 8-byte versions for both the header and per-cl versions.
  */
-inline int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_size, int m) {
+//inline 
+__attribute__ ((noinline))
+int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_size, int m) {
+asm("");
     uintptr_t src = (uintptr_t)buf;
     const uintptr_t start_src = (uintptr_t)src;
     uintptr_t dst = (uintptr_t)obj;
@@ -118,9 +121,20 @@ inline int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_si
     int block_num = total_size/CACHE_LINE_SIZE;
 
 #ifdef NO_SW_VERSION_CONTROL
-    my_memcopy_asm_unroll_coalesc((void *)dst, (void *)src, size, m);
-    return 1;
+    return my_memcopy_asm_unroll_coalesc((void *)dst, (void *)src, size, m);
 #else
+    return farm_memcopy_versions((void *)dst, (void *)src, size, m);
+#endif /* NO_SW_VERSION_CONTROL */
+}
+
+
+int farm_memcopy_versions(void *obj, void *buf, uintptr_t nam, size_t total_size, int m) {
+    uintptr_t src = (uintptr_t)buf;
+    const uintptr_t start_src = (uintptr_t)src;
+    uintptr_t dst = (uintptr_t)obj;
+    size_t size = total_size;
+    int block_num = total_size/CACHE_LINE_SIZE;
+
     PASS2FLEXUS_MEASURE(m, MEASUREMENT, 20);
     
     data_object_t *my_obj = (data_object_t *)src;
@@ -140,6 +154,7 @@ inline int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_si
     // first cache line
     __asm__ __volatile__ (
             // we assume HDR_SIZE = 16 bytes (version + lock + key)
+            "FIRST:"
             "ldd [%1], %%f0\n\t"
             "ldd [%1+8], %%f2\n\t"
             "ldd [%1+16], %%f4\n\t"
@@ -165,6 +180,7 @@ inline int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_si
     src += CACHE_LINE_SIZE - hdr_size;
     dst += CACHE_LINE_SIZE - hdr_size;
 
+    __asm__ __volatile__("ALL_COPY_BEGIN:");
     for (k=0; k < size/(16*CACHE_LINE_SIZE); k++ ) {
         // check the cl versions
         uintptr_t version_ptr = src;
@@ -175,10 +191,13 @@ inline int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_si
             }
             version_ptr += CACHE_LINE_SIZE;
         }
+        __asm__ __volatile__("V_END:");
 
         src += sizeof(version_t);
 
         // the rest
+        __asm__ __volatile__("");
+        __asm__ __volatile__("LDST_COPY_BEGIN:");
         for (p=0; ( (p < 8) || ( (k==size/(16*CACHE_LINE_SIZE)-1) && (p<7) ) ) ; p++) {
             __asm__ __volatile__ (
                     // we assume version size = 8 bytes
@@ -223,14 +242,26 @@ inline int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_si
             src += CACHE_LINE_SIZE*2;
             dst += (CACHE_LINE_SIZE - sizeof(version_t))*2;
         }
+        __asm__ __volatile__("LDST_COPY_END:");
     }
+    __asm__ __volatile__("ALL_COPY_END:");
 
     PASS2FLEXUS_MEASURE(m, MEASUREMENT, 30);
 
     // if we are here, all cache line versions match
     return 1;
-#endif /* NO_SW_VERSION_CONTROL */
 }
+
+
+
+
+
+
+
+
+
+
+
 
 inline int fast_memcpy_from_nam_buf(void *obj, void *buf, uintptr_t nam, size_t total_size) {
     uintptr_t src = (uintptr_t)buf;
@@ -422,7 +453,7 @@ void my_memcopy_asm_unroll(void *dst, void *src, int size, int k) {
     PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
 }
 
-void my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
+int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
     int i=0, p, ret_value;
     PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
 
@@ -474,6 +505,7 @@ void my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
                        );
 
         // by 2 cache blocks
+        __asm__ __volatile__("LOADS_BEGIN:");
         for (p=0; p < 8; p++) {
             __asm__ __volatile__ (
                     //                "ldd [%1], %%f0\n\t"
@@ -520,8 +552,10 @@ void my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
             dst+=128;
             src+=128;
         }
+        __asm__ __volatile__("LOADS_END:");
     }
     PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+    return 1;
 }
 
 void * par_phase_write(void *arg) {
