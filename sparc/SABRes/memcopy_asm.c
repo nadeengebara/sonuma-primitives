@@ -117,12 +117,12 @@ inline int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_si
     size_t size = total_size;
     int block_num = total_size/CACHE_LINE_SIZE;
 
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 20);
 #ifdef NO_SW_VERSION_CONTROL
     // FIXME: replace with asm memcopy
     my_memcopy_asm_unroll_coalesc((void *)dst, (void *)src, size, m);
     return 1;
 #else
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 20);
     
     data_object_t *my_obj = (data_object_t *)src;
 
@@ -654,7 +654,7 @@ int k = 0, z = 1;
 
         //my_memcopy_asm_unroll((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
         //my_memcopy_asm_unroll_coalesc((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
-        farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), NULL, 1024, i);
+        farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), NULL, DATA_SIZE, i);
 
 
         for(k=0; k<300; k++) {
