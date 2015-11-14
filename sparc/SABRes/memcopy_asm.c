@@ -141,7 +141,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
 
     if (my_obj->lock) {
         // the object is updating
-        //assert(0);
+        assert(0);
         return 0;
     }
 
@@ -179,13 +179,16 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
     src += CACHE_LINE_SIZE - hdr_size;
     dst += CACHE_LINE_SIZE - hdr_size;
 
-    for (k=0; k < size/(16*CACHE_LINE_SIZE); k++ ) {
+    int total_chunks = size/(16*CACHE_LINE_SIZE);
+
+    for (k=0; k < total_chunks; k++ ) {
         // check the cl versions
         version_t cur_version_ptr = src;
         //printf("%x - %x - k=%d, size=%d, srcptr=%x, src_begin=%x\n", *(unsigned*)hdr_version_ptr, *(unsigned*)cur_version_ptr, k, size, src, start_src);
 
         uintptr_t chunk_end = MIN(src + (16*CACHE_LINE_SIZE), start_src+size);
-        //printf("1src=%x, end=%x\n", src, chunk_end);
+        unsigned delta = chunk_end - src;
+        //printf("outer loop: src=%x, end=%x\n", src, chunk_end);
         __asm__ __volatile__(
                 "1:"
                 "ldd [%1], %%f0\n\t"
@@ -205,20 +208,43 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                 "rett %%i7 + 8\n\t"
                 "mov 0, %%o0\n\t"
                 "3:\n\t" // versions are correct
-                "sub %2, 1024, %2\n\t" // this #!$%^ compiler assigns the same reg for cur_version_ptr and src
+                "sub %2, %4, %2\n\t" // this #!$%^ compiler assigns the same reg for cur_version_ptr and src
                     : "=r"(ret_value)     /* output registers*/
-                    : "r"(hdr_version_ptr), "r"(cur_version_ptr), "r"(chunk_end)      /* input registers*/
+                    : "r"(hdr_version_ptr), "r"(cur_version_ptr), "r"(chunk_end), "r"(delta)      /* input registers*/
                        : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
                        "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
                 );
 
         // the rest
-        for (p=0; 
-                ( 
-                 ( ( k<size/(16*CACHE_LINE_SIZE)-1) && (p<8) ) || 
-                 ( ( k==size/(16*CACHE_LINE_SIZE)-1) && (p<7) ) 
-                 ); 
-                p++) {
+        for (p=0; p<8; p++) {
+            //printf("inner loop: src=%x, end=%x\n", src, chunk_end);
+            if ( (p == 7) && ( k==total_chunks-1) ) {
+            //printf("last chunk: src=%x, end=%x\n", src, chunk_end);
+                // skip the last cache block from the last chunk
+            __asm__ __volatile__ (
+                    // we assume version size = 8 bytes
+                    "ldd [%1+8], %%f0\n\t"
+                    "ldd [%1+16], %%f2\n\t"
+                    "ldd [%1+24], %%f4\n\t"
+                    "ldd [%1+32], %%f6\n\t"
+                    "ldd [%1+40], %%f8\n\t"
+                    "ldd [%1+48], %%f10\n\t"
+                    "ldd [%1+56], %%f12\n\t"
+                    "std %%f0, [%2]\n\t"
+                    "std %%f2, [%2+8]\n\t"
+                    "std %%f4, [%2+16]\n\t"
+                    "std %%f6, [%2+24]\n\t"
+                    "std %%f8, [%2+32]\n\t"
+                    "std %%f10, [%2+40]\n\t"
+                    "std %%f12, [%2+48]\n\t"
+                    : "=r"(ret_value)     /* output registers*/
+                    : "r"(src), "r"(dst)      /* input registers*/
+                       : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
+                           );
+                break;
+            }
+
             __asm__ __volatile__ (
                     // we assume version size = 8 bytes
                     "ldd [%1+8], %%f0\n\t"
@@ -268,6 +294,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
     PASS2FLEXUS_MEASURE(m, MEASUREMENT, 30);
 
     // if we are here, all cache line versions match
+    //exit(0);
     return 1;
 }
 
@@ -616,12 +643,15 @@ int k = 0, z = 1;
 
         //my_memcopy_asm_unroll((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
         //my_memcopy_asm_unroll_coalesc((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
-        farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), DATA_SIZE, i);
+        asm("EXPERIMENT_LOOP_B:");
+        int out = farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), DATA_SIZE, i);
+        assert(out==1);
+        asm("EXPERIMENT_LOOP_E:");
 
 
-        for(k=0; k<300; k++) {
-            z = k*z;
-        }
+        //for(k=0; k<300; k++) {
+        //    z = k*z;
+        //}
 
 /*
         while (!success) {	//read the object again if it's not consistent
