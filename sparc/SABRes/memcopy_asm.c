@@ -112,7 +112,7 @@ pthread_barrier_t   barrier;
  */
 //inline 
 __attribute__ ((noinline))
-int farm_memcopy_asm(void *obj, void *buf, uintptr_t nam, size_t total_size, int m) {
+int farm_memcopy_asm(void *obj, void *buf, size_t total_size, int m) {
 asm("");
     uintptr_t src = (uintptr_t)buf;
     const uintptr_t start_src = (uintptr_t)src;
@@ -128,7 +128,7 @@ asm("");
 }
 
 
-int farm_memcopy_versions(void *obj, void *buf, uintptr_t nam, size_t total_size, int m) {
+int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
     uintptr_t src = (uintptr_t)buf;
     const uintptr_t start_src = (uintptr_t)src;
     uintptr_t dst = (uintptr_t)obj;
@@ -141,20 +141,19 @@ int farm_memcopy_versions(void *obj, void *buf, uintptr_t nam, size_t total_size
 
     if (my_obj->lock) {
         // the object is updating
-        assert(0);
+        //assert(0);
         return 0;
     }
 
     version_t hdr_version = my_obj->version;
+    version_t *hdr_version_ptr = &hdr_version;
 
     int i, k, p, ret_value;
-    //src = &(my_obj->value[0]);
     src += hdr_size;
 
     // first cache line
     __asm__ __volatile__ (
             // we assume HDR_SIZE = 16 bytes (version + lock + key)
-            "FIRST:"
             "ldd [%1], %%f0\n\t"
             "ldd [%1+8], %%f2\n\t"
             "ldd [%1+16], %%f4\n\t"
@@ -180,42 +179,63 @@ int farm_memcopy_versions(void *obj, void *buf, uintptr_t nam, size_t total_size
     src += CACHE_LINE_SIZE - hdr_size;
     dst += CACHE_LINE_SIZE - hdr_size;
 
-    __asm__ __volatile__("ALL_COPY_BEGIN:");
     for (k=0; k < size/(16*CACHE_LINE_SIZE); k++ ) {
         // check the cl versions
-        uintptr_t version_ptr = src;
-        for (i=0; i < 16; i++) {
-            if (hdr_version != *(version_t *) src) {
-                assert(0);
-                return 0;
-            }
-            version_ptr += CACHE_LINE_SIZE;
-        }
-        __asm__ __volatile__("V_END:");
+        version_t cur_version_ptr = src;
+        //printf("%x - %x - k=%d, size=%d, srcptr=%x, src_begin=%x\n", *(unsigned*)hdr_version_ptr, *(unsigned*)cur_version_ptr, k, size, src, start_src);
 
-        src += sizeof(version_t);
+        uintptr_t chunk_end = MIN(src + (16*CACHE_LINE_SIZE), start_src+size);
+        //printf("1src=%x, end=%x\n", src, chunk_end);
+        __asm__ __volatile__(
+                "1:"
+                "ldd [%1], %%f0\n\t"
+                "ldd [%2], %%f2\n\t"
+                "fcmps %%f0, %%f2\n\t"
+                "nop\n\t"
+                "fbne 2f\n\t"
+                "nop\n\t"
+                "add %2, 64, %2\n\t"
+                "cmp %2, %3\n\t"
+                "bne  1b\n\t" // go to the beginning of the loop
+                "nop\n\t"
+
+                "ba 3f\n\t"
+                "nop\n\t"
+                "2:\n\t" // version check failed
+                "rett %%i7 + 8\n\t"
+                "mov 0, %%o0\n\t"
+                "3:\n\t" // versions are correct
+                "sub %2, 1024, %2\n\t" // this #!$%^ compiler assigns the same reg for cur_version_ptr and src
+                    : "=r"(ret_value)     /* output registers*/
+                    : "r"(hdr_version_ptr), "r"(cur_version_ptr), "r"(chunk_end)      /* input registers*/
+                       : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
+                );
 
         // the rest
-        __asm__ __volatile__("");
-        __asm__ __volatile__("LDST_COPY_BEGIN:");
-        for (p=0; ( (p < 8) || ( (k==size/(16*CACHE_LINE_SIZE)-1) && (p<7) ) ) ; p++) {
+        for (p=0; 
+                ( 
+                 ( ( k<size/(16*CACHE_LINE_SIZE)-1) && (p<8) ) || 
+                 ( ( k==size/(16*CACHE_LINE_SIZE)-1) && (p<7) ) 
+                 ); 
+                p++) {
             __asm__ __volatile__ (
                     // we assume version size = 8 bytes
-                    "ldd [%1], %%f0\n\t"
-                    "ldd [%1+8], %%f2\n\t"
-                    "ldd [%1+16], %%f4\n\t"
-                    "ldd [%1+24], %%f6\n\t"
-                    "ldd [%1+32], %%f8\n\t"
-                    "ldd [%1+40], %%f10\n\t"
-                    "ldd [%1+48], %%f12\n\t"
+                    "ldd [%1+8], %%f0\n\t"
+                    "ldd [%1+16], %%f2\n\t"
+                    "ldd [%1+24], %%f4\n\t"
+                    "ldd [%1+32], %%f6\n\t"
+                    "ldd [%1+40], %%f8\n\t"
+                    "ldd [%1+48], %%f10\n\t"
+                    "ldd [%1+56], %%f12\n\t"
                     //            "ldd [%1+56], %%f14\n\t"
-                    "ldd [%1+56], %%f14\n\t"
-                    "ldd [%1+72], %%f16\n\t"
-                    "ldd [%1+80], %%f18\n\t"
-                    "ldd [%1+88], %%f20\n\t"
-                    "ldd [%1+96], %%f22\n\t"
-                    "ldd [%1+104], %%f24\n\t"
-                    "ldd [%1+112], %%f26\n\t"
+                    "ldd [%1+72], %%f14\n\t"
+                    "ldd [%1+80], %%f16\n\t"
+                    "ldd [%1+88], %%f18\n\t"
+                    "ldd [%1+96], %%f20\n\t"
+                    "ldd [%1+104], %%f22\n\t"
+                    "ldd [%1+112], %%f24\n\t"
+                    "ldd [%1+120], %%f26\n\t"
                     //            "ldd [%1+56], %%f14\n\t"
                     "std %%f0, [%2]\n\t"
                     "std %%f2, [%2+8]\n\t"
@@ -241,127 +261,14 @@ int farm_memcopy_versions(void *obj, void *buf, uintptr_t nam, size_t total_size
 
             src += CACHE_LINE_SIZE*2;
             dst += (CACHE_LINE_SIZE - sizeof(version_t))*2;
+            //printf("3src=%x\n\n", src);
         }
-        __asm__ __volatile__("LDST_COPY_END:");
     }
-    __asm__ __volatile__("ALL_COPY_END:");
 
     PASS2FLEXUS_MEASURE(m, MEASUREMENT, 30);
 
     // if we are here, all cache line versions match
     return 1;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-inline int fast_memcpy_from_nam_buf(void *obj, void *buf, uintptr_t nam, size_t total_size) {
-    uintptr_t src = (uintptr_t)buf;
-    uintptr_t dst = (uintptr_t)obj;
-    size_t size = total_size;
-
-    /////////
-    int count = 0;
-    /////////
-
-#ifdef NO_SW_VERSION_CONTROL
-    memcpy((void *)dst, (void *)src, size);
-    return 1;
-#else
-
-    // calculate the first address in the second cache line, using the nam pointer
-    // as we might be copying data from a differently aligned RDMA read buffer
-    uintptr_t first_cl_end = (nam + CACHE_LINE_SIZE) & ~(CACHE_LINE_SIZE - 1);
-    //size_t copy_size = std::min(first_cl_end - nam, size);
-    size_t copy_size = MIN(first_cl_end - nam, size);
-    //DEBUG_ASSERT((sizeof(size_t) == 8) && (copy_size & 0x7) == 0 && (dst & 0x7) == 0);
-    DEBUG_ASSERT((sizeof(size_t) == 8) && (copy_size & 0x7) == 0 && (dst & 0x7) == 0);
-
-    // Now get the version. 
-    header_t *hdr = (header_t *)dst;
-
-
-    size -= copy_size;
-    first_cl_end = src + copy_size;
-    while (src < first_cl_end) {
-        *(size_t*)dst = *(size_t*)src;
-        dst+=8;
-        src+=8;
-    }
-
-    // Now get the version. Because the version is the first word in the
-    // header we know that it has been copied to the output buffer.
-    // if object is being updated, return immediately
-    if(version_is_updating(hdr->version)) {
-        count++;
-#ifndef FAKE_REMOTE_READS
-        return 0;
-#endif
-    }
-
-    // This is the version we expect in each cache line.
-    nam_cl_version_t hdrver = version_get_cl_version_bits(hdr->version);
-
-    while (1) {
-        if (size >= DATA_BYTES_PER_CACHE_LINE) {
-            // check the version and return 0 immediately if it doesn't match
-            if(*(nam_cl_version_t *)src != hdrver) {
-                count++;
-#ifndef FAKE_REMOTE_READS
-                return 0;
-#endif
-            }
-
-            DEBUG_ASSERT((sizeof(unsigned short) == 2) && ((dst & 0x1) == 0) && ((src & 0x1) == 0) );
-
-            src += sizeof(nam_cl_version_t);
-
-            size_t i;
-            for (i=0; i < DATA_BYTES_PER_CACHE_LINE; i+=2) {
-                *((unsigned short*)(dst + i)) = *((unsigned short*)(src + i));
-            }
-            dst += DATA_BYTES_PER_CACHE_LINE;
-            src += DATA_BYTES_PER_CACHE_LINE; 
-            size -= DATA_BYTES_PER_CACHE_LINE;
-        } else {
-            break;
-        }
-    }
-
-    // check the cache line version in the last cache line
-    if(size > 0) {
-        // check the version and return 0 immediately if it doesn't match
-        if(*(nam_cl_version_t *)src != hdrver) {
-            count++;
-#ifndef FAKE_REMOTE_READS
-            return 0;
-#endif
-        }
-
-        src += sizeof(nam_cl_version_t);
-    }
-
-    // deal with the last cache line
-
-    DEBUG_ASSERT((size & 0x1) == 0);
-    while (size > 0) {
-        *(unsigned short*)dst = *(unsigned short*)src;
-        size -= 2;
-        dst += 2;
-        src += 2;
-    }
-
-    // if we are here, all cache line versions match
-    return 1;
-#endif /* NO_SW_VERSION_CONTROL */
 }
 
 void my_memcopy(void *dst, void *src, int size) {
@@ -453,6 +360,7 @@ void my_memcopy_asm_unroll(void *dst, void *src, int size, int k) {
     PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
 }
 
+__attribute__ ((noinline))
 int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
     int i=0, p, ret_value;
     PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
@@ -461,7 +369,7 @@ int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
     // each KB: first load first 8 bytes from 16 cache blocks, then the rest
     for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
         __asm__ __volatile__ (
-                "LOAD_SEQ:"
+                //"LOAD_SEQ:"
                 "ldd [%1], %%f0\n\t"
                 "ldd [%1+64], %%f2\n\t"
                 "ldd [%1+128], %%f4\n\t"
@@ -505,7 +413,7 @@ int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
                        );
 
         // by 2 cache blocks
-        __asm__ __volatile__("LOADS_BEGIN:");
+#ifndef ZERO_COPY
         for (p=0; p < 8; p++) {
             __asm__ __volatile__ (
                     //                "ldd [%1], %%f0\n\t"
@@ -524,7 +432,6 @@ int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
                     "ldd [%1+104], %%f24\n\t"
                     "ldd [%1+112], %%f26\n\t"
                     "ldd [%1+120], %%f28\n\t"
-#ifndef ZERO_COPY
                     //                "std %%f0, [%2]\n\t"
                     "std %%f2, [%2+8]\n\t"
                     "std %%f4, [%2+16]\n\t"
@@ -541,7 +448,6 @@ int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
                     "std %%f24, [%2+104]\n\t"
                     "std %%f26, [%2+112]\n\t"
                     "std %%f28, [%2+120]\n\t"
-#endif /* ZERO_COPY */
                     : "=r"(ret_value)     /* output registers*/
                     : "r"(src), "r"(dst)      /* input registers*/
                        : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
@@ -552,7 +458,10 @@ int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
             dst+=128;
             src+=128;
         }
-        __asm__ __volatile__("LOADS_END:");
+#else
+        dst+=1024;
+        src+=1024;
+#endif /* ZERO_COPY */
     }
     PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
     return 1;
@@ -707,7 +616,7 @@ int k = 0, z = 1;
 
         //my_memcopy_asm_unroll((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
         //my_memcopy_asm_unroll_coalesc((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
-        farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), NULL, DATA_SIZE, i);
+        farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), DATA_SIZE, i);
 
 
         for(k=0; k<300; k++) {
@@ -813,10 +722,11 @@ int main(int argc, char **argv)
     //my_memcopy_asm_unroll_coalesc(dst, src, 8192, 0);
     //my_memcopy_asm(dst, src, 1024);
     //memcpy(dst, src, 1024);
-    farm_memcopy_asm(dst, src, src, 8192, 0);
+    int l = farm_memcopy_asm(dst, src, 8192, 0);
+    printf("\n\n%d\n", l);
 
     for (i=0; i<4096; i++) {
-        printf("%x - %x\n", dst[i], src[i]);
+//        printf("%x - %x\n", dst[i], src[i]);
     }
     exit(0);
 */
