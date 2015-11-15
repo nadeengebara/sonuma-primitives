@@ -58,6 +58,7 @@ inline nam_cl_version_t version_get_cl_version_bits(nam_version_t version) {
 //#define MEASURE_TS //to measure the latency of the writers' critical section
 //#define MY_DEBUG
 
+unsigned data_obj_size;
 
 typedef uint64_t version_t;
 typedef volatile uint8_t my_lock_t;
@@ -82,23 +83,25 @@ typedef struct data_object {
   version_t version;    // 8 bytes
   my_lock_t lock;          // 4 bytes
   my_key_t key;            // 4 bytes
+/*
   uint8_t value[DATA_SIZE];
   uint8_t padding[64-(DATA_SIZE+16)%64]; //All objects need to be cache-line-aligned
+*/
 } data_object_t;
-
+/*
 typedef struct app_object {
   my_key_t key;
   uint8_t value[DATA_SIZE];
   uint8_t padding[64-(DATA_SIZE+4)%64]; //All objects need to be cache-line-aligned
 } app_object_t;
-
+*/
 typedef struct {
 	int id;
 	int is_reader;
 } parm;
 
 uint8_t *lbuff;
-data_object_t *ctxbuff;  
+uintptr_t ctxbuff;  
 int iters, num_objects;
 uint64_t thread_buf_size;
 uint16_t readers, writers;
@@ -188,6 +191,13 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
 
         uintptr_t chunk_end = MIN(src + (16*CACHE_LINE_SIZE), start_src+size);
         unsigned delta = chunk_end - src;
+
+        /*
+        uintptr_t temp = src;
+        for (; temp < chunk_end; temp +=64)
+            printf("versions %x - %x; start=%p, cur=%p, end=%p\n", hdr_version, *(long int *)temp, start_src, src, chunk_end);
+        */
+
         //printf("outer loop: src=%x, end=%x\n", src, chunk_end);
         __asm__ __volatile__(
                 "1:"
@@ -493,7 +503,7 @@ int my_memcopy_asm_unroll_coalesc(void *dst, void *src, int size, int k) {
     PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
     return 1;
 }
-
+/*
 void * par_phase_write(void *arg) {
     parm *p=(parm *)arg;
      
@@ -543,7 +553,7 @@ void * par_phase_write(void *arg) {
 
     return NULL;
 }
-
+*/
 void * par_phase_read(void *arg) {
     parm *p=(parm *)arg;
     
@@ -552,7 +562,7 @@ void * par_phase_read(void *arg) {
 
     uint8_t *app_buff;
     app_buff = memalign(PAGE_SIZE, APP_BUFF_SIZE);
-    unsigned payload_cache_blocks = sizeof(data_object_t)>>6;
+    unsigned payload_cache_blocks = data_obj_size>>6;
 
     if (app_buff == NULL) {
         fprintf(stdout, "App buffer could not be allocated. Malloc returned %"PRIu64"\n", 0);
@@ -607,8 +617,8 @@ void * par_phase_read(void *arg) {
     for(i=0; i<LLC_SIZE; i+=64) {
         temp += ( (uint8_t *)(bogus_buff) )[i];
     }
-    int obj_buf_size_ = num_objects*sizeof(data_object_t);
-    for(i=0; i<obj_buf_size_; i+=64) {
+    int obj_buf_size_ = num_objects*data_obj_size;
+    for(i=0; i<obj_buf_size_; i+=1) {
         temp += ( (uint8_t *)(ctxbuff) )[i];
     }
     for(i=0; i<APP_BUFF_SIZE; i+=64) {
@@ -630,72 +640,13 @@ void * par_phase_read(void *arg) {
 
 //reader kernel    
 int k = 0, z = 1;
-    uint8_t success; 
-    for (i = 0; i<iters; i++) {
-/*
-        success = 0;
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 0);
-        luckyObj = rand() % num_objects;
-        lbuff_slot = (uint8_t *)(thread_buf_base + ((luckyObj * sizeof(data_object_t)) % thread_buf_size));
-        ctx_offset = luckyObj * 1024;//sizeof(data_object_t);
-        wq_head = wq->head;
-*/
 
-        //my_memcopy_asm_unroll((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
-        //my_memcopy_asm_unroll_coalesc((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), 1024, i);
+    for (i = 0; i<iters; i++) {
+        //printf("iter=%d\n", i);
         asm("EXPERIMENT_LOOP_B:");
-        int out = farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), DATA_SIZE, i);
+        int out = farm_memcopy_asm((void*)app_buff, (void*)(ctxbuff + data_obj_size*((i*7)%num_objects) ), data_obj_size, i);
         assert(out==1);
         asm("EXPERIMENT_LOOP_E:");
-
-
-        //for(k=0; k<300; k++) {
-        //    z = k*z;
-        //}
-
-/*
-        while (!success) {	//read the object again if it's not consistent
-            create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
-            call_magic_2_64(wq_head, NEWWQENTRY, op_count);
-            wq->head =  wq->head + 1;
-            if (wq->head >= MAX_NUM_WQ) {
-                wq->head = 0;
-                wq->SR ^= 1;
-            }
-            //sync
-            cq_tail = cq->tail;
-            while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
-            success = cq->q[cq_tail].success;
-            wq->q[cq->q[cq_tail].tid].valid = 0;	//free WQ entry
-
-            cq->tail = cq->tail + 1;
-            if (cq->tail >= MAX_NUM_WQ) {
-                cq->tail = 0;
-                cq->SR ^= 1;
-            }    
-            PASS2FLEXUS_MEASURE(i, MEASUREMENT, 10);
-            if (success) {	//No atomicity violation!
-                call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
-
-                PASS2FLEXUS_MEASURE(i, MEASUREMENT, 20);
-                fast_memcpy_from_nam_buf((void*)app_buff, (void*)lbuff_slot, (uintptr_t) lbuff_slot, payload_cache_blocks*CACHE_LINE_SIZE);
-                PASS2FLEXUS_MEASURE(i, MEASUREMENT, 30);
-                //
-                //touch the data
-                uint64_t accum;
-                for (j=0; j<DATA_SIZE; j+=OBJECT_BYTE_STRIDE) 
-                accum += (uint64_t)*(lbuff_slot + j);
-                 *(lbuff_slot) = accum;
-                 ///
-            } else {	//Atomicity violation detected
-                call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
-            }
-
-            op_count++;
-
-        }
-*/
-        //PASS2FLEXUS_MEASURE(i, MEASUREMENT, 40);
 
     }
     printf("%d", z);
@@ -711,13 +662,10 @@ int main(int argc, char **argv)
     int i, retcode, num_threads; 
     iters = ITERS;
 
-    if (argc != 4) {
-        fprintf(stdout,"Usage: %s <num_objects> <num_readers> <num_writers>\n", argv[0]);
+    if (argc != 5) {
+        fprintf(stdout,"Usage: %s <num_objects> <num_readers> <num_writers> <obj_size>\n", argv[0]);
         return 1;  
     }
-#ifndef DATA_SIZE
-    assert(0); // add to compiler options -D DATA_SIZE=<value>
-#endif
 #ifdef NO_SW_VERSION_CONTROL
     fprintf(stdout,"Running without SW versions memcopy\n");
 #else
@@ -732,14 +680,17 @@ int main(int argc, char **argv)
     fprintf(stdout,"Running without zero copy (ld/st)\n");
 #endif
     fprintf(stdout,"Application buffer size is %d bytes\n", APP_BUFF_SIZE);
-    assert(sizeof(data_object_t)%64 == 0);
+    //assert(sizeof(data_object_t)%64 == 0);
     num_objects = atoi(argv[1]);
-    uint64_t ctx_size = num_objects*sizeof(data_object_t);
+    data_obj_size = atoi(argv[4]);
+    fprintf(stdout,"Data object size is %d bytes\n", data_obj_size);
+    assert( (data_obj_size % 1024) == 0 );
+    uint64_t ctx_size = num_objects*data_obj_size;
     readers = atoi(argv[2]) ;
     writers = atoi(argv[3]) ;
     num_threads = readers+writers;
     assert(num_threads <= 16);
-    uint64_t buf_size = sizeof(data_object_t) * readers * MAX_NUM_WQ; 
+    uint64_t buf_size = data_obj_size * readers * MAX_NUM_WQ; 
     if (readers) thread_buf_size = buf_size / readers;
     else thread_buf_size = 0;
 
@@ -787,19 +738,23 @@ int main(int argc, char **argv)
         fprintf(stdout, "Context buffer could not be allocated. Memalign failed.\n");
         return 1;
     } 
+    memset(ctxbuff, 0, ctx_size);
     retcode = mlock(ctxbuff, ctx_size*sizeof(uint8_t));
     if (retcode != 0) fprintf(stdout, "Context buffer mlock returned %d\n", retcode);
 
     counter = 0;
     //initialize the context buffer
-    ctxbuff[0].lock = 0;
-    call_magic_2_64((uint64_t)ctxbuff, CONTEXTMAP, 0);
+    uintptr_t ctx_ptr = ctxbuff;
+    ((data_object_t *)ctx_ptr)->lock = 0;
+    call_magic_2_64((uint64_t)ctx_ptr, CONTEXTMAP, 0);
     for(i=0; i<num_objects; i++) {
-        ctxbuff[i].lock = 0;
-        ctxbuff[i].version = 0;
-	ctxbuff[i].key = counter;
+        ((data_object_t *)ctx_ptr)->lock = 0;
+        ((data_object_t *)ctx_ptr)->version = 0;
+	((data_object_t *)ctx_ptr)->key = counter;
+        //printf("%p, %x\n", ctx_ptr, *(long int *)(ctx_ptr+8));
+        ctx_ptr += data_obj_size;
         counter++;
-        call_magic_2_64((uint64_t)&(ctxbuff[i]), CONTEXT, counter);
+        call_magic_2_64((uint64_t)ctx_ptr, CONTEXT, counter);
     } 
     //fprintf(stdout, "Allocated %d pages for the context\n", counter);
     //}
@@ -807,7 +762,7 @@ int main(int argc, char **argv)
     call_magic_2_64(42, BUFFER_SIZE, buf_size);
     call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
     fprintf(stdout,"Init done! Allocated %d objects of %lu bytes (pure object data = %d, total size = %lu bytes).\nLocal buffer size = %lu Bytes.\nWill now allocate per-thread QPs and run with %d reader threads (SYNC) and %d writer threads.\nEach thread will execute %d ops (reads or writes).\nObject strided access: %d Bytes\n", 
-		num_objects, sizeof(data_object_t), DATA_SIZE, ctx_size, 
+		num_objects, data_obj_size, data_obj_size, ctx_size, 
 		buf_size,
 		readers,writers,
 		iters,OBJECT_BYTE_STRIDE);
@@ -844,7 +799,7 @@ int main(int argc, char **argv)
 		p[i].is_reader = 0;
                 core = reader_prio[wr_idx];
 		wr_idx--;
-		pthread_create(&threads[i], &pthread_custom_attr, par_phase_write, (void *)(p+i));
+		//pthread_create(&threads[i], &pthread_custom_attr, par_phase_write, (void *)(p+i));
 	        int error = processor_bind(P_LWPID, threads[i], core, NULL);
 		if (error) {
 			printf("Could not bind writer thread %d to core %d! (error %d)\n", i, core, error);
