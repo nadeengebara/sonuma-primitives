@@ -525,7 +525,6 @@ void * par_phase_read(void *arg) {
     for(i=0; i<APP_BUFF_SIZE; i+=64) {
         temp += ( (uint8_t *)(app_buff) )[i];
     }
-    //printf("LOL\n");
     printf("%x", temp);
     //////////////////////////////
 
@@ -551,15 +550,12 @@ int k = 0, z = 1;
         ctx_offset = luckyObj * sizeof(data_object_t);
         wq_head = wq->head;
 
-/*
-        asm("EXPERIMENT_LOOP_B:");
-        int out = farm_memcopy_asm((void*)app_buff, (void*)&( ctxbuff[(i*7)%num_objects] ), DATA_SIZE, i);
-        assert(out==1);
-        asm("EXPERIMENT_LOOP_E:");
-*/
-
         while (!success) {	//read the object again if it's not consistent
+#if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
             create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
+#else
+            create_wq_entry(RMC_READ, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
+#endif
             call_magic_2_64(wq_head, NEWWQENTRY, op_count);
             wq->head =  wq->head + 1;
             if (wq->head >= MAX_NUM_WQ) {
@@ -569,7 +565,11 @@ int k = 0, z = 1;
             //sync
             cq_tail = cq->tail;
             while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
+#if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
             success = cq->q[cq_tail].success;
+#else
+            success = 1; // remote read always succeeds
+#endif
             wq->q[cq->q[cq_tail].tid].valid = 0;	//free WQ entry
 
             cq->tail = cq->tail + 1;
@@ -581,12 +581,8 @@ int k = 0, z = 1;
             if (success) {	//No atomicity violation!
                 call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
 
-                PASS2FLEXUS_MEASURE(i, MEASUREMENT, 20);
                 int out = farm_memcopy_asm((void*)app_buff, (void*)lbuff_slot, DATA_SIZE, i);
                 assert(out==1);
-                PASS2FLEXUS_MEASURE(i, MEASUREMENT, 30);
-                //
-                //touch the data
             } else {	//Atomicity violation detected
                 call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
             }
@@ -617,18 +613,12 @@ int main(int argc, char **argv)
 #ifndef DATA_SIZE
     assert(0); // add to compiler options -D DATA_SIZE=<value>
 #endif
-#ifdef NO_SW_VERSION_CONTROL
-    fprintf(stdout,"Running without SW versions memcopy\n");
+#if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
+    printf("Running sabres E2E.\n");
+#elif !defined(NO_SW_VERSION_CONTROL) && !defined(ZERO_COPY)
+    printf("Running farm-like E2E.\n");
 #else
-    fprintf(stdout,"Running with SW versions memcopy\n");
-#endif
-#ifdef ZERO_COPY
-    #ifndef NO_SW_VERSION_CONTROL
-        disable_SW_control
-    #endif
-    fprintf(stdout,"Running with zero copy (only loads)\n");
-#else
-    fprintf(stdout,"Running without zero copy (ld/st)\n");
+#error "Both NO_SW_VERSION_CONTROL and ZERO_COPY must be defined"
 #endif
     fprintf(stdout,"Application buffer size is %d bytes\n", APP_BUFF_SIZE);
     assert(sizeof(data_object_t)%64 == 0);
