@@ -663,7 +663,7 @@ int main(int argc, char **argv)
     iters = ITERS;
 
     if (argc != 5) {
-        fprintf(stdout,"Usage: %s <ctx_buff_size (in MB)> <num_readers> <num_writers> <obj_size>\n", argv[0]);
+        fprintf(stdout,"Usage: %s <ctx_buff_size (in KB)> <num_readers> <num_writers> <obj_size>\n", argv[0]);
         return 1;  
     }
 #ifdef NO_SW_VERSION_CONTROL
