@@ -618,7 +618,7 @@ void * par_phase_read(void *arg) {
         temp += ( (uint8_t *)(bogus_buff) )[i];
     }
     int obj_buf_size_ = num_objects*data_obj_size;
-    for(i=0; i<obj_buf_size_; i+=1) {
+    for(i=0; i<obj_buf_size_; i+=64) {
         temp += ( (uint8_t *)(ctxbuff) )[i];
     }
     for(i=0; i<APP_BUFF_SIZE; i+=64) {
@@ -644,7 +644,7 @@ int k = 0, z = 1;
     for (i = 0; i<iters; i++) {
         //printf("iter=%d\n", i);
         asm("EXPERIMENT_LOOP_B:");
-        int out = farm_memcopy_asm((void*)app_buff, (void*)(ctxbuff + data_obj_size*((i*7)%num_objects) ), data_obj_size, i);
+        int out = farm_memcopy_asm((void*)app_buff, (void*)(ctxbuff + data_obj_size*(i%num_objects) ), data_obj_size, i);
         assert(out==1);
         asm("EXPERIMENT_LOOP_E:");
 
@@ -663,7 +663,7 @@ int main(int argc, char **argv)
     iters = ITERS;
 
     if (argc != 5) {
-        fprintf(stdout,"Usage: %s <num_objects> <num_readers> <num_writers> <obj_size>\n", argv[0]);
+        fprintf(stdout,"Usage: %s <ctx_buff_size (in MB)> <num_readers> <num_writers> <obj_size>\n", argv[0]);
         return 1;  
     }
 #ifdef NO_SW_VERSION_CONTROL
@@ -681,11 +681,11 @@ int main(int argc, char **argv)
 #endif
     fprintf(stdout,"Application buffer size is %d bytes\n", APP_BUFF_SIZE);
     //assert(sizeof(data_object_t)%64 == 0);
-    num_objects = atoi(argv[1]);
+    uint64_t ctx_size = atoi(argv[1])*1024;
     data_obj_size = atoi(argv[4]);
-    fprintf(stdout,"Data object size is %d bytes\n", data_obj_size);
+    fprintf(stdout,"Data object size is %d bytes, ctx size is %d bytes\n", data_obj_size, ctx_size);
+    num_objects = ctx_size/data_obj_size;
     assert( (data_obj_size % 1024) == 0 );
-    uint64_t ctx_size = num_objects*data_obj_size;
     readers = atoi(argv[2]) ;
     writers = atoi(argv[3]) ;
     num_threads = readers+writers;
