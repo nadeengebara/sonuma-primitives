@@ -562,6 +562,7 @@ int k = 0, z = 1;
         wq_head = wq->head;
 
         while (!success) {	//read the object again if it's not consistent
+
 #if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
             create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
 #else
@@ -701,9 +702,10 @@ int main(int argc, char **argv)
 /*        printf("%p: %p, %p, %p\n", ctx_ptr, &(((data_object_t *)ctx_ptr)->version), 
                 &(((data_object_t *)ctx_ptr)->lock),
                 &(((data_object_t *)ctx_ptr)->key));
-*/        ctx_ptr += data_obj_size;
+*/
         counter++;
         call_magic_2_64((uint64_t)ctx_ptr, CONTEXT, counter);
+        ctx_ptr += data_obj_size;
     }
     //fprintf(stdout, "Allocated %d pages for the context\n", counter);
     //}
