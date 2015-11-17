@@ -203,7 +203,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                 "1:"
                 "ldd [%1], %%f0\n\t"
                 "ldd [%2], %%f2\n\t"
-                "fcmps %%f0, %%f2\n\t"
+                "fcmped %%f0, %%f2\n\t"
                 "nop\n\t"
                 "fbne 2f\n\t"
                 "nop\n\t"
@@ -220,7 +220,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                 "3:\n\t" // versions are correct
                 "sub %2, %4, %2\n\t" // this #!$%^ compiler assigns the same reg for cur_version_ptr and src
                     : "=r"(ret_value)     /* output registers*/
-                    : "r"(hdr_version_ptr), "r"(cur_version_ptr), "r"(chunk_end), "r"(delta)      /* input registers*/
+                    : "r"(start_src), "r"(cur_version_ptr), "r"(chunk_end), "r"(delta)      /* input registers*/
                        : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
                        "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
                 );
@@ -752,9 +752,9 @@ int main(int argc, char **argv)
         ((data_object_t *)ctx_ptr)->version = 0;
 	((data_object_t *)ctx_ptr)->key = counter;
         //printf("%p, %x\n", ctx_ptr, *(long int *)(ctx_ptr+8));
+        call_magic_2_64((uint64_t)ctx_ptr, CONTEXT, counter);
         ctx_ptr += data_obj_size;
         counter++;
-        call_magic_2_64((uint64_t)ctx_ptr, CONTEXT, counter);
     } 
     //fprintf(stdout, "Allocated %d pages for the context\n", counter);
     //}

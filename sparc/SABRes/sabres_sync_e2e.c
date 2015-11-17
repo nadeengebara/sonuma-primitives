@@ -108,6 +108,7 @@ int iters, num_objects;
 uint64_t thread_buf_size;
 uint16_t readers, writers;
 unsigned data_obj_size;
+int memcpyID = 16;
 
 pthread_barrier_t   barrier; 
 
@@ -126,7 +127,22 @@ asm("");
     int block_num = total_size/CACHE_LINE_SIZE;
 
 #ifdef NO_SW_VERSION_CONTROL
-    return my_memcopy((void *)dst, (void *)src, size, m);
+    switch(memcpyID) {
+        case 16:
+            return my_memcopy((void *)dst, (void *)src, size, m);
+            break;
+        case 8:
+            return my_memcopy8((void *)dst, (void *)src, size, m);
+            break;
+        case 4:
+            return my_memcopy4((void *)dst, (void *)src, size, m);
+            break;
+        case 2:
+            return my_memcopy2((void *)dst, (void *)src, size, m);
+            break;
+        default:
+            assert(0);
+    }
 #else
     return farm_memcopy_versions((void *)dst, (void *)src, size, m);
 #endif /* NO_SW_VERSION_CONTROL */
@@ -150,12 +166,14 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
         return 0;
     }
 
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 21);
     version_t hdr_version = my_obj->version;
     version_t *hdr_version_ptr = &hdr_version;
 
     int i, k, p, ret_value;
     src += hdr_size;
 
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 22);
     // first cache line
     __asm__ __volatile__ (
             // we assume HDR_SIZE = 16 bytes (version + lock + key)
@@ -186,6 +204,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
 
     int total_chunks = size/(16*CACHE_LINE_SIZE);
 
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 23);
     for (k=0; k < total_chunks; k++ ) {
         // check the cl versions
         version_t cur_version_ptr = src;
@@ -196,12 +215,13 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
         //printf("outer loop: src=%x, end=%x\n", src, chunk_end);
         __asm__ __volatile__(
                 "1:"
-                "ldd [%1], %%f0\n\t"
-                "ldd [%2], %%f2\n\t"
-                "fcmps %%f0, %%f2\n\t"
+                //
+                "ld [%1+4], %%i0\n\t"
+                "ld [%2+4], %%i1\n\t"
+                "cmp %%i0, %%i1\n\t"
+                "bne 2f\n\t"
                 "nop\n\t"
-                "fbne 2f\n\t"
-                "nop\n\t"
+                //
                 "add %2, 64, %2\n\t"
                 "cmp %2, %3\n\t"
                 "bne  1b\n\t" // go to the beginning of the loop
@@ -215,15 +235,18 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                 "3:\n\t" // versions are correct
                 "sub %2, %4, %2\n\t" // this #!$%^ compiler assigns the same reg for cur_version_ptr and src
                     : "=r"(ret_value)     /* output registers*/
-                    : "r"(hdr_version_ptr), "r"(cur_version_ptr), "r"(chunk_end), "r"(delta)      /* input registers*/
-                       : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
+                    : "r"(start_src), "r"(cur_version_ptr), "r"(chunk_end), "r"(delta)      /* input registers*/
+                       : "%o0", "%i7", "%l0", "%l1", "%l2", "%i0", "%i1", "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
                        "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
                 );
 
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 25);
         // the rest
         for (p=0; p<8; p++) {
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 26);
             //printf("inner loop: src=%x, end=%x\n", src, chunk_end);
             if ( (p == 7) && ( k==total_chunks-1) ) {
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 28);
             //printf("last chunk: src=%x, end=%x\n", src, chunk_end);
                 // skip the last cache block from the last chunk
             __asm__ __volatile__ (
@@ -245,11 +268,12 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                     : "=r"(ret_value)     /* output registers*/
                     : "r"(src), "r"(dst)      /* input registers*/
                        : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
-                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13"  /* clobbered registers*/
                            );
                 break;
             }
 
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 27);
             __asm__ __volatile__ (
                     // we assume version size = 8 bytes
                     "ldd [%1+8], %%f0\n\t"
@@ -287,7 +311,9 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                     : "=r"(ret_value)     /* output registers*/
                     : "r"(src), "r"(dst)      /* input registers*/
                        : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
-                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27"  /* clobbered registers*/
                            );
 
             src += CACHE_LINE_SIZE*2;
@@ -300,6 +326,92 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
 
     // if we are here, all cache line versions match
     //exit(0);
+    return 1;
+}
+
+__attribute__ ((noinline))
+int my_memcopy2(void *dst, void *src, int size, int k) {
+    int i=0, p, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+
+    // by 1KB
+    // each KB: first load first 8 bytes from 16 cache blocks, then the rest
+    for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                   : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                   "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                       );
+
+        dst+=1024;
+        src+=1024;
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+    return 1;
+}
+
+__attribute__ ((noinline))
+int my_memcopy4(void *dst, void *src, int size, int k) {
+    int i=0, p, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+
+    // by 1KB
+    // each KB: first load first 8 bytes from 16 cache blocks, then the rest
+    for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                "ldd [%1+128], %%f4\n\t"
+                "ldd [%1+192], %%f6\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                   : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                   "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                       );
+
+        dst+=1024;
+        src+=1024;
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+    return 1;
+}
+
+__attribute__ ((noinline))
+int my_memcopy8(void *dst, void *src, int size, int k) {
+    int i=0, p, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+
+    // by 1KB
+    // each KB: first load first 8 bytes from 16 cache blocks, then the rest
+    for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                "ldd [%1+128], %%f4\n\t"
+                "ldd [%1+192], %%f6\n\t"
+                "ldd [%1+256], %%f8\n\t"
+                "ldd [%1+320], %%f10\n\t"
+                "ldd [%1+384], %%f12\n\t"
+                "ldd [%1+448], %%f14\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                   : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                   "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                       );
+
+        dst+=1024;
+        src+=1024;
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
     return 1;
 }
 
@@ -618,8 +730,8 @@ int main(int argc, char **argv)
     int i, retcode, num_threads; 
     iters = ITERS;
 
-    if (argc != 5) {
-        fprintf(stdout,"Usage: %s <ctx_buff_size (in KB)> <num_readers> <num_writers> <obj_size>\n", argv[0]);
+    if (!(argc == 5 || argc == 6)) {
+        fprintf(stdout,"Usage: %s <ctx_buff_size (in KB)> <num_readers> <num_writers> <obj_size> [<memcpyID=16(default), 8, 4, 2>]\n", argv[0]);
         return 1;  
     }
 #if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
@@ -637,6 +749,8 @@ int main(int argc, char **argv)
     assert( (data_obj_size % 1024) == 0 );
     readers = atoi(argv[2]) ;
     writers = atoi(argv[3]) ;
+    if (argc == 6)
+        memcpyID = atoi(argv[5]);
     num_threads = readers+writers;
     assert(num_threads <= 16);
     assert(sizeof(obj_hdr_t) == 16);
