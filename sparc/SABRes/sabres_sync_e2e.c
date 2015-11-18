@@ -156,24 +156,21 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
     size_t size = total_size;
     int block_num = total_size/CACHE_LINE_SIZE;
 
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 20);
-    
     data_object_t *my_obj = (data_object_t *)src;
 
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 20);
     if (my_obj->lock) {
         // the object is updating
         assert(0);
         return 0;
     }
 
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 21);
     version_t hdr_version = my_obj->version;
     version_t *hdr_version_ptr = &hdr_version;
 
     int i, k, p, ret_value;
     src += hdr_size;
 
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 22);
     // first cache line
     __asm__ __volatile__ (
             // we assume HDR_SIZE = 16 bytes (version + lock + key)
@@ -204,7 +201,6 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
 
     int total_chunks = size/(16*CACHE_LINE_SIZE);
 
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 23);
     for (k=0; k < total_chunks; k++ ) {
         // check the cl versions
         version_t cur_version_ptr = src;
@@ -240,13 +236,10 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                        "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
                 );
 
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 25);
         // the rest
         for (p=0; p<8; p++) {
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 26);
             //printf("inner loop: src=%x, end=%x\n", src, chunk_end);
             if ( (p == 7) && ( k==total_chunks-1) ) {
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 28);
             //printf("last chunk: src=%x, end=%x\n", src, chunk_end);
                 // skip the last cache block from the last chunk
             __asm__ __volatile__ (
@@ -273,7 +266,6 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                 break;
             }
 
-    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 27);
             __asm__ __volatile__ (
                     // we assume version size = 8 bytes
                     "ldd [%1+8], %%f0\n\t"
