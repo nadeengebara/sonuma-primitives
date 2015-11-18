@@ -30,6 +30,8 @@
 #define CTX_ID 0
 #define DST_NID 1
 
+#define CONC_ASYNC_OPS 10  //number of concurrent reads in flight (per reader)
+
 /////////////////////////////////// FARM's good stuff /////////////////////////////////////
 #define CACHE_LINE_SIZE 64
 typedef uintptr_t nam_version_t;
