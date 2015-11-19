@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
+#include <signal.h>
+#include <time.h>
 #include <assert.h>
 #include <sys/mman.h>
 #include "../../libsonuma/sonuma.h"
@@ -23,9 +25,15 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define APP_BUFF_SIZE (PAGE_SIZE*2)
 
+#define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE); \
+                           } while (0)
+
+#define CLOCKID CLOCK_REALTIME
+#define SIG SIGRTMIN
+
 #define LLC_SIZE (4*1024*1024)
 
-#define ITERS 100000000
+#define ITERS 1000
 #define OBJECT_BYTE_STRIDE 128  //how much of the object will be touched by readers/writers (128 -> 50% (half of the blocks))
 #define CTX_ID 0
 #define DST_NID 1
@@ -54,7 +62,7 @@ inline nam_cl_version_t version_get_cl_version_bits(nam_version_t version) {
   return (nam_cl_version_t)(version >> RESERVED_BITS);
 }
 ////////////////////////////////////////////////////////////////////////////////////////////
-//#define MEASURE_TS //to measure the latency of the writers' critical section
+#define MEASURE_TS //to measure the latency of the writers' critical section
 //#define MY_DEBUG
 
 
@@ -109,6 +117,7 @@ uint64_t thread_buf_size;
 uint16_t readers, writers;
 unsigned data_obj_size;
 int memcpyID = 16;
+int write_freq;
 
 pthread_barrier_t   barrier; 
 
@@ -161,7 +170,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
     PASS2FLEXUS_MEASURE(m, MEASUREMENT, 20);
     if (my_obj->lock) {
         // the object is updating
-        assert(0);
+        //assert(0);
         return 0;
     }
 
@@ -514,58 +523,164 @@ int my_memcopy(void *dst, void *src, int size, int k) {
     return 1;
 }
 
+/*
+static void write_stuff(int sig, siginfo_t *si, void * uc) {
+    int i,j,luckyObj;
+    uint8_t prevLockVal;
+    luckyObj = rand() % num_objects;
+    uintptr_t obj_ptr = ctxbuff + luckyObj*data_obj_size;
+    data_object_t *my_obj = (data_object_t *)obj_ptr;
+    while (my_obj->lock);	//TTS
+    do {
+        prevLockVal = acquire_lock(&(my_obj->lock));	//Test-and-set
+        if (prevLockVal) {
+            call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
+#ifdef MY_DEBUG
+            printf("hread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
+            usleep(10);
+#endif
+        }
+    } while (prevLockVal);
+#ifdef MEASURE_TS
+    call_magic_2_64(luckyObj, CS_START, i);	//signal the beginning of the CS
+#endif
+    uintptr_t data_ptr = obj_ptr + sizeof(obj_hdr_t);
+    for (j=0; j<data_obj_size; j++) {
+        *(uint8_t *)(data_ptr+j) ^= 1;
+    }
+#ifdef MY_DEBUG
+    printf("version = %" PRIu64 ",\t\
+            lock = %" PRIu8 ",\t\
+            key = %" PRIu32 "\n", my_obj->version, my_obj->lock, my_obj->key);
+#endif
+    // FIXME
+    my_obj->key ^= 7;  //random operation on object
+    for (j=0; j<data_obj_size; j+=OBJECT_BYTE_STRIDE) 
+        *(uint8_t *)(data_ptr+j) = (uint8_t)i;
+    my_obj->version++;
+    my_obj->lock = 0;	//unlock
+    call_magic_2_64(luckyObj, OBJECT_WRITE, i);	//signal the completion of a write
+#ifdef MY_DEBUG
+    printf("Thread %d: \tprevious lock value = %" PRIu8 ",\t\
+            new lock value = %" PRIu8 ",\t\
+            new version = %" PRIu64 "\n", p->id, prevLockVal, my_obj->lock, my_obj->version);
+#endif
+}
+
 void * par_phase_write(void *arg) {
     parm *p=(parm *)arg;
      
-    int i,j,luckyObj;
+    timer_t timerid;
+    struct sigevent sev;
+    struct itimerspec its;
+    long long freq_nanosecs;
+    sigset_t mask;
+    struct sigaction sa;
+
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = write_stuff;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIG, &sa, NULL) == -1)
+        errExit("sigaction");
+
+
+
+    sigemptyset(&mask);
+    sigaddset(&mask, SIG);
+    if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1)
+        errExit("sigprocmask");
+
+
+
+    sev.sigev_notify = SIGEV_SIGNAL;
+    sev.sigev_signo = SIG;
+    sev.sigev_value.sival_ptr = &timerid;
+    if (timer_create(CLOCKID, &sev, &timerid) == -1)
+        errExit("timer_create");
+
+    printf("timer ID is 0x%lx\n", (long) timerid);
+
+
+
+    freq_nanosecs = write_freq;
+    its.it_value.tv_sec = freq_nanosecs / 1000000000;
+    its.it_value.tv_nsec = freq_nanosecs % 1000000000;
+    its.it_interval.tv_sec = its.it_value.tv_sec;
+    its.it_interval.tv_nsec = its.it_value.tv_nsec;
+
+    if (timer_settime(timerid, 0, &its, NULL) == -1)
+        errExit("timer_settime");
+ 
+    printf("Unblocking signal %d\n", SIG);
+    if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
+        errExit("sigprocmask");
+
     srand(p->id);		//remove this for lots of conflicts :-)
     pthread_barrier_wait (&barrier);
     if (!p->id) call_magic_2_64(1, ALL_SET, 1); //INIT DONE
-     
+
+    while(1) {}
+
+
+    return NULL;
+}
+*/
+
+void * par_phase_write(void *arg) {
+    parm *p=(parm *)arg;
+    int i,j,luckyObj;
     uint8_t prevLockVal;
+
+    int z = 235, k;
+
     for (i = 0; i<iters; i++) {
-	luckyObj = rand() % num_objects;
+        luckyObj = rand() % num_objects;
         uintptr_t obj_ptr = ctxbuff + luckyObj*data_obj_size;
         data_object_t *my_obj = (data_object_t *)obj_ptr;
-	while (my_obj->lock);	//TTS
-	do {
-		prevLockVal = acquire_lock(&(my_obj->lock));	//Test-and-set
-		if (prevLockVal) {
-			call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
-			#ifdef MY_DEBUG
-			printf("thread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
-			usleep(10);
-			#endif
-		}
-	} while (prevLockVal);
-        #ifdef MEASURE_TS
-	call_magic_2_64(luckyObj, CS_START, i);	//signal the beginning of the CS
-        #endif
-        uintptr_t data_ptr = obj_ptr + sizeof(obj_hdr_t);
-	for (j=0; j<data_obj_size; j++) {
-		*(uint8_t *)(data_ptr+j) ^= 1;
-	}
-	#ifdef MY_DEBUG
-  	printf("version = %" PRIu64 ",\t\
-	  lock = %" PRIu8 ",\t\
-	  key = %" PRIu32 "\n", my_obj->version, my_obj->lock, my_obj->key);
-	#endif
+        while (my_obj->lock);	//TTS
+        do {
+            prevLockVal = acquire_lock(&(my_obj->lock));	//Test-and-set
+            if (prevLockVal) {
+                call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
+#ifdef MY_DEBUG
+                printf("hread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
+                usleep(10);
+#endif
+            }
+        } while (prevLockVal);
+#ifdef MEASURE_TS
+        call_magic_2_64(luckyObj, CS_START, i);	//signal the beginning of the CS
+#endif
+        for(k=0; k<500; k++) {
+            z = k*z;
+        }
+        
+        /*uintptr_t data_ptr = obj_ptr + sizeof(obj_hdr_t);
+        for (j=0; j<data_obj_size; j++) {
+            *(uint8_t *)(data_ptr+j) ^= 1;
+        }
+#ifdef MY_DEBUG
+        printf("version = %" PRIu64 ",\t\
+                lock = %" PRIu8 ",\t\
+                key = %" PRIu32 "\n", my_obj->version, my_obj->lock, my_obj->key);
+#endif
         // FIXME
-	my_obj->key ^= 7;  //random operation on object
-	for (j=0; j<data_obj_size; j+=OBJECT_BYTE_STRIDE) 
-		*(uint8_t *)(data_ptr+j) = (uint8_t)i;
-	my_obj->version++;
-	my_obj->lock = 0;	//unlock
-	call_magic_2_64(luckyObj, OBJECT_WRITE, i);	//signal the completion of a write
-	#ifdef MY_DEBUG
-  	printf("Thread %d: \tprevious lock value = %" PRIu8 ",\t\
-	  	new lock value = %" PRIu8 ",\t\
-		new version = %" PRIu64 "\n", p->id, prevLockVal, my_obj->lock, my_obj->version);
-	#endif
+        my_obj->key ^= 7;  //random operation on object
+        for (j=0; j<data_obj_size; j+=OBJECT_BYTE_STRIDE) 
+            *(uint8_t *)(data_ptr+j) = (uint8_t)i;
+        */
+        my_obj->version++;
+        my_obj->lock = 0;	//unlock
+        call_magic_2_64(luckyObj, OBJECT_WRITE, i);	//signal the completion of a write
+#ifdef MY_DEBUG
+        printf("Thread %d: \tprevious lock value = %" PRIu8 ",\t\
+                new lock value = %" PRIu8 ",\t\
+                new version = %" PRIu64 "\n", p->id, prevLockVal, my_obj->lock, my_obj->version);
+#endif
     }
     call_magic_2_64(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
 
-    return NULL;
+    printf("%d\n", z);
 }
 
 void * par_phase_read(void *arg) {
@@ -698,7 +813,8 @@ int k = 0, z = 1;
                 call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
 
                 int out = farm_memcopy_asm((void*)app_buff, (void*)lbuff_slot, data_obj_size, i);
-                assert(out==1);
+                success = out;
+                //assert(out==1);
             } else {	//Atomicity violation detected
                 call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
             }
@@ -722,8 +838,8 @@ int main(int argc, char **argv)
     int i, retcode, num_threads; 
     iters = ITERS;
 
-    if (!(argc == 5 || argc == 6)) {
-        fprintf(stdout,"Usage: %s <ctx_buff_size (in KB)> <num_readers> <num_writers> <obj_size> [<memcpyID=16(default), 8, 4, 2>]\n", argv[0]);
+    if (!(argc == 7)) {
+        fprintf(stdout,"Usage: %s <ctx_buff_size (in KB)> <num_readers> <num_writers> <obj_size> <memcpyID=16, 8, 4, 2> <write freq in ns>\n", argv[0]);
         return 1;  
     }
 #if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
@@ -741,8 +857,8 @@ int main(int argc, char **argv)
     assert( (data_obj_size % 1024) == 0 );
     readers = atoi(argv[2]) ;
     writers = atoi(argv[3]) ;
-    if (argc == 6)
-        memcpyID = atoi(argv[5]);
+    memcpyID = atoi(argv[5]);
+    write_freq = atoll(argv[6]);
     num_threads = readers+writers;
     assert(num_threads <= 16);
     assert(sizeof(obj_hdr_t) == 16);
