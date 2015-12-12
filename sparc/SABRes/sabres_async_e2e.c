@@ -14,9 +14,16 @@
 #include <math.h>
 #include <assert.h>
 #include <sys/mman.h>
-#include "../../libsonuma/sonuma.h"
-#include "../../libsonuma/magic_iface.h"
 #include <sys/pset.h>
+
+#ifdef OLD_DEF
+#include </net2/daglis/soNUMA/magic_iface.h>
+#include </net2/daglis/soNUMA/RMCdefines.h>
+#include "son_asm.h"
+#else
+    #include "../../libsonuma/sonuma.h"
+    #include "../../libsonuma/magic_iface.h"
+#endif /* OLD_DEF */
 
 #define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
 #define DEBUG_ASSERT(...)
@@ -31,6 +38,21 @@
 #define DST_NID 1
 
 #define CONC_ASYNC_OPS 10  //number of concurrent reads in flight (per reader)
+
+#ifdef OLD_DEF // old lib is used
+    #define CREATE_WQ_ENTRY(...)    create_wq_entry2(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE(...)
+    #define PASS2FLEXUS_DBG(...)
+    #define PASS2FLEXUS_DBG_OLD(...)    call_magic_2_64(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE_OLD(...)    call_magic_2_64(__VA_ARGS__)
+
+    #define RMC_SABRE RMC_READ
+#else // new lib is used
+    #define CREATE_WQ_ENTRY(...)    create_wq_entry(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
+    #define PASS2FLEXUS_DBG(...)    call_magic_2_64(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE_OLD(...)
+#endif
 
 /////////////////////////////////// FARM's good stuff /////////////////////////////////////
 #define CACHE_LINE_SIZE 64
@@ -131,7 +153,7 @@ void * par_phase_write(void *arg) {
 	do {
 		prevLockVal = acquire_lock(&(my_obj->lock));	//Test-and-set
 		if (prevLockVal) {
-			call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
+			PASS2FLEXUS_DBG(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
 			#ifdef MY_DEBUG
 			printf("thread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
 			usleep(10);
@@ -139,7 +161,7 @@ void * par_phase_write(void *arg) {
 		}
 	} while (prevLockVal);
         #ifdef MEASURE_TS
-	call_magic_2_64(luckyObj, CS_START, i);	//signal the beginning of the CS
+	PASS2FLEXUS_DBG(luckyObj, CS_START, i);	//signal the beginning of the CS
         #endif
         uintptr_t data_ptr = obj_ptr + sizeof(obj_hdr_t);
 	for (j=0; j<data_obj_size; j++) {
@@ -156,14 +178,14 @@ void * par_phase_write(void *arg) {
 		*(uint8_t *)(data_ptr+j) = (uint8_t)i;
 	my_obj->version++;
 	my_obj->lock = 0;	//unlock
-	call_magic_2_64(luckyObj, OBJECT_WRITE, i);	//signal the completion of a write
+	PASS2FLEXUS_DBG(luckyObj, OBJECT_WRITE, i);	//signal the completion of a write
 	#ifdef MY_DEBUG
   	printf("Thread %d: \tprevious lock value = %" PRIu8 ",\t\
 	  	new lock value = %" PRIu8 ",\t\
 		new version = %" PRIu64 "\n", p->id, prevLockVal, my_obj->lock, my_obj->version);
 	#endif
     }
-    call_magic_2_64(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
+    PASS2FLEXUS_DBG(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
 
     return NULL;
 }
@@ -261,6 +283,81 @@ void * par_phase_read(void *arg) {
         wq_head = wq->head;
         cq_tail = cq->tail;
 
+#ifndef OLD_DEF
+        do {
+            while (cq->q[cq_tail].SR == cq->SR) {
+                tid = cq->q[cq_tail].tid;
+                wq->q[tid].valid = 0;
+                //do whatever is needed with tid here
+	        success = cq->q[cq_tail].success;
+ 		//process read data AND schedule another request
+                if (success) {	//No atomicity violation!
+                    PASS2FLEXUS_DBG(cq_tail, SABRE_SUCCESS, op_count_completed);
+	        } else {	//Atomicity violation detected
+                    PASS2FLEXUS_DBG(cq_tail, SABRE_ABORT, op_count_completed);
+                    //need to reschedule same op
+	        }              
+		 op_count_completed++;
+
+                cq->tail = cq->tail + 1;
+                if (cq->tail >= MAX_NUM_WQ) {
+                    cq->tail = 0;
+                    cq->SR ^= 1;
+                }
+                cq_tail = cq->tail;
+            }
+        } while (wq->q[wq_head].valid);
+                
+            luckyObj = rand() % num_objects;
+	    lbuff_slot = (uint8_t *)(thread_buf_base + ((op_count_issued * data_obj_size) % thread_buf_size));
+       	    ctx_offset = luckyObj * data_obj_size;
+
+            wq_head = wq->head;
+            CREATE_WQ_ENTRY(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, data_obj_size>>6, (uint64_t)&(wq->q[wq_head]));
+            call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+            op_count_issued++;
+	    wq->head =  wq->head + 1;
+	    if (wq->head >= MAX_NUM_WQ) {
+ 	    	wq->head = 0;
+      		wq->SR ^= 1;
+    	    }
+#else
+	do {
+	  if (wq->q[wq_head].SR != (uint8_t)wq->SR) {
+		 while (cq->q[cq_tail].SR == cq->SR) {
+		  tid = cq->q[cq_tail].tid;
+		  //handler(tid);
+		  op_count_completed++;
+		  	
+		  cq->tail = cq->tail + 1;
+	  	  if (cq->tail >= MAX_NUM_WQ) {
+			cq->tail = 0;
+			cq->SR ^= 1;
+		  }    
+		  
+		  call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
+		  cq_tail = cq->tail;
+		}
+	   } 
+	} while (wq->SR != cq->SR);     
+      
+            luckyObj = rand() % num_objects;
+	    lbuff_slot = (uint8_t *)(thread_buf_base + ((op_count_issued * data_obj_size) % thread_buf_size));
+       	    ctx_offset = luckyObj * data_obj_size;
+
+            wq_head = wq->head;
+            CREATE_WQ_ENTRY(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, data_obj_size>>6, (uint64_t)&(wq->q[wq_head]));
+            call_magic_2_64(wq_head, NEWWQENTRY, op_count_issued);
+            op_count_issued++;
+	
+	  wq->head =  wq->head + 1;
+      	  if (wq->head >= MAX_NUM_WQ) {
+	  	wq->head = 0;
+		wq->SR ^= 1;
+	  }  
+#endif
+    }
+/*
         do {
             while (cq->q[cq_tail].SR == cq->SR) {
                 tid = cq->q[cq_tail].tid;
@@ -280,13 +377,13 @@ void * par_phase_read(void *arg) {
                 if (success) {	//No atomicity violation!
                     call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count_completed);
 	            //touch the data
-                    /*
+                    /
 	            uint64_t accum;
 		    for (j=0; j<DATA_SIZE; j+=OBJECT_BYTE_STRIDE) 
 			accum += (uint64_t)*(lbuff_slot + j);
 	            *(lbuff_slot) = accum;
 		    //prepare new req
-                    */
+                    /
                     luckyObj = rand() % num_objects;
                     ctx_offset = luckyObj * data_obj_size;
 	        } else {	//Atomicity violation detected
@@ -324,7 +421,8 @@ void * par_phase_read(void *arg) {
     	    }
         }
     }
-    call_magic_2_64(0, BENCHMARK_END, 0);	//this thread completed its work and it's exiting
+*/
+    PASS2FLEXUS_DBG(0, BENCHMARK_END, 0);	//this thread completed its work and it's exiting
     free(wq);
     free(cq);
 

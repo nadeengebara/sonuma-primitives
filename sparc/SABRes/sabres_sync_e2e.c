@@ -16,11 +16,56 @@
 #include <time.h>
 #include <assert.h>
 #include <sys/mman.h>
-#include "../../libsonuma/sonuma.h"
-#include "../../libsonuma/magic_iface.h"
+
+#ifdef OLD_DEF
+#include </net2/daglis/soNUMA/magic_iface.h>
+#include </net2/daglis/soNUMA/RMCdefines.h>
+#include "son_asm.h"
+#else
+    #include "../../libsonuma/sonuma.h"
+    #include "../../libsonuma/magic_iface.h"
+#endif /* OLD_DEF */
+
 #include <sys/pset.h>
 
-#define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
+#ifdef OLD_DEF // old lib is used
+
+    static inline __attribute__ ((always_inline))
+    uint64_t  call_magic_sim_break(uint64_t son_function, uint64_t arg1, uint64_t arg2){
+        uint64_t  ret_value;
+
+        __asm__ __volatile__ (
+                "mov %1, %%l0\n\t"
+                "mov %2, %%l1\n\t"
+                "mov %3, %%l2\n\t"
+                "sethi 1, %%g0\n\t"
+                "mov %%l0, %0\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(son_function), "r"(arg1), "r"(arg2)      /* input registers*/
+                : "%l0", "%l1", "%l2"   /* clobbered registers*/
+                );
+
+        return ret_value;
+    }
+
+#define OBJECT_WRITE        26	//used by writers in SABRe experiments, to count number of object writes
+#define LOCK_SPINNING	    27
+#define CS_START            28
+#define MEASUREMENT 99
+
+    #define CREATE_WQ_ENTRY(...)    create_wq_entry2(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
+    #define PASS2FLEXUS_DBG(...)
+    #define PASS2FLEXUS_DBG_OLD(...)    call_magic_2_64(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE_OLD(...)    call_magic_2_64(__VA_ARGS__)
+#else // new lib is used
+    #define CREATE_WQ_ENTRY(...)    create_wq_entry(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE(...)    call_magic_2_64(__VA_ARGS__)
+    #define PASS2FLEXUS_DBG(...)    call_magic_2_64(__VA_ARGS__)
+    #define PASS2FLEXUS_MEASURE_OLD(...)
+#endif
+#define PASS2FLEXUS_MEASURE_COMMON(...)    call_magic_2_64(__VA_ARGS__)
+
 #define DEBUG_ASSERT(...)
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define APP_BUFF_SIZE (PAGE_SIZE*2)
@@ -33,7 +78,7 @@
 
 #define LLC_SIZE (4*1024*1024)
 
-#define ITERS 1000
+#define ITERS 1000000
 #define OBJECT_BYTE_STRIDE 128  //how much of the object will be touched by readers/writers (128 -> 50% (half of the blocks))
 #define CTX_ID 0
 #define DST_NID 1
@@ -209,6 +254,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
     dst += CACHE_LINE_SIZE - hdr_size;
 
     int total_chunks = size/(16*CACHE_LINE_SIZE);
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 21);
 
     for (k=0; k < total_chunks; k++ ) {
         // check the cl versions
@@ -245,6 +291,7 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                        "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
                 );
 
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 22);
         // the rest
         for (p=0; p<8; p++) {
             //printf("inner loop: src=%x, end=%x\n", src, chunk_end);
@@ -626,12 +673,70 @@ void * par_phase_write(void *arg) {
 }
 */
 
+__attribute__ ((noinline))
+int update_cl_versions(void *obj, int size, int new_version) {
+    int i=0, p, ret_value;
+    uintptr_t cl_vers = (uintptr_t)obj;
+    cl_vers += 4;
+   
+    // first 16 cache blocks
+    __asm__ __volatile__ (
+            //"stw %1, [%2]\n\t" // skip the first cache block
+            "stw %1, [%2+64]\n\t"
+            "stw %1, [%2+128]\n\t"
+            "stw %1, [%2+192]\n\t"
+            "stw %1, [%2+256]\n\t"
+            "stw %1, [%2+320]\n\t"
+            "stw %1, [%2+384]\n\t"
+            "stw %1, [%2+448]\n\t"
+            "stw %1, [%2+512]\n\t"
+            "stw %1, [%2+576]\n\t"
+            "stw %1, [%2+640]\n\t"
+            "stw %1, [%2+704]\n\t"
+            "stw %1, [%2+768]\n\t"
+            "stw %1, [%2+832]\n\t"
+            "stw %1, [%2+896]\n\t"
+            "stw %1, [%2+960]\n\t"
+            : "=r"(ret_value)     /* output registers*/
+            : "r"(new_version), "r"(cl_vers)      /* input registers*/
+                );
+        cl_vers+=1024;
+
+    for (i=1; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                "stw %1, [%2]\n\t"
+                "stw %1, [%2+64]\n\t"
+                "stw %1, [%2+128]\n\t"
+                "stw %1, [%2+192]\n\t"
+                "stw %1, [%2+256]\n\t"
+                "stw %1, [%2+320]\n\t"
+                "stw %1, [%2+384]\n\t"
+                "stw %1, [%2+448]\n\t"
+                "stw %1, [%2+512]\n\t"
+                "stw %1, [%2+576]\n\t"
+                "stw %1, [%2+640]\n\t"
+                "stw %1, [%2+704]\n\t"
+                "stw %1, [%2+768]\n\t"
+                "stw %1, [%2+832]\n\t"
+                "stw %1, [%2+896]\n\t"
+                "stw %1, [%2+960]\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(new_version), "r"(cl_vers)      /* input registers*/
+                       );
+        cl_vers+=1024;
+    }
+    return 1;
+}
+
 void * par_phase_write(void *arg) {
     parm *p=(parm *)arg;
     int i,j,luckyObj;
     uint8_t prevLockVal;
 
     int z = 235, k;
+    srand(p->id);		//remove this for lots of conflicts :-)
+    pthread_barrier_wait (&barrier);
+    if (!p->id) PASS2FLEXUS_MEASURE_COMMON(1, ALL_SET, 1); //INIT DONE
 
     for (i = 0; i<iters; i++) {
         luckyObj = rand() % num_objects;
@@ -641,7 +746,7 @@ void * par_phase_write(void *arg) {
         do {
             prevLockVal = acquire_lock(&(my_obj->lock));	//Test-and-set
             if (prevLockVal) {
-                call_magic_2_64(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
+                PASS2FLEXUS_DBG(luckyObj, LOCK_SPINNING, prevLockVal);	//signal the completion of a write
 #ifdef MY_DEBUG
                 printf("hread %d failed to grab lock of item %d! (lock value = %"PRIu8")\n", p->id, luckyObj, prevLockVal);
                 usleep(10);
@@ -649,36 +754,42 @@ void * par_phase_write(void *arg) {
             }
         } while (prevLockVal);
 #ifdef MEASURE_TS
-        call_magic_2_64(luckyObj, CS_START, i);	//signal the beginning of the CS
+        PASS2FLEXUS_MEASURE(luckyObj, CS_START, i);	//signal the beginning of the CS
 #endif
-        for(k=0; k<500; k++) {
-            z = k*z;
-        }
-        
         /*uintptr_t data_ptr = obj_ptr + sizeof(obj_hdr_t);
         for (j=0; j<data_obj_size; j++) {
             *(uint8_t *)(data_ptr+j) ^= 1;
         }
+        for (j=0; j<data_obj_size; j+=OBJECT_BYTE_STRIDE) 
+            *(uint8_t *)(data_ptr+j) = (uint8_t)i;
+        */
 #ifdef MY_DEBUG
         printf("version = %" PRIu64 ",\t\
                 lock = %" PRIu8 ",\t\
                 key = %" PRIu32 "\n", my_obj->version, my_obj->lock, my_obj->key);
+        printf("OLD cl_version[15] = %d, cl_version[7] = %d\n", *(int*)(obj_ptr+64*15+4), *(int*)(obj_ptr+64*7+4));
 #endif
         // FIXME
         my_obj->key ^= 7;  //random operation on object
-        for (j=0; j<data_obj_size; j+=OBJECT_BYTE_STRIDE) 
-            *(uint8_t *)(data_ptr+j) = (uint8_t)i;
-        */
         my_obj->version++;
+        update_cl_versions( (void*)obj_ptr, data_obj_size, (int)(my_obj->version) );
+#ifdef MY_DEBUG
+        printf("NEW cl_version[15] = %d, cl_version[7] = %d\n", *(int*)(obj_ptr+64*15+4), *(int*)(obj_ptr+64*7+4));
+#endif
         my_obj->lock = 0;	//unlock
-        call_magic_2_64(luckyObj, OBJECT_WRITE, i);	//signal the completion of a write
+        PASS2FLEXUS_MEASURE(luckyObj, OBJECT_WRITE, i);	//signal the completion of a write
+        
+        for(k=0; k<write_freq/2; k++) {
+            z = k*z;
+        }
+        
 #ifdef MY_DEBUG
         printf("Thread %d: \tprevious lock value = %" PRIu8 ",\t\
                 new lock value = %" PRIu8 ",\t\
                 new version = %" PRIu64 "\n", p->id, prevLockVal, my_obj->lock, my_obj->version);
 #endif
     }
-    call_magic_2_64(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
+    PASS2FLEXUS_DBG(0, BENCHMARK_END, 0);	//this threads completed its work and it's exiting
 
     printf("%d\n", z);
 }
@@ -761,6 +872,7 @@ void * par_phase_read(void *arg) {
     int j,luckyObj;
     srand(p->id);		//remove this for lots of conflicts :-)
     pthread_barrier_wait (&barrier);
+    if (!p->id) call_magic_sim_break(1, 1, 1);
     if (!p->id) call_magic_2_64(1, ALL_SET, 1); //INIT DONE
  
     uint8_t *lbuff_slot, *thread_buf_base;
@@ -781,11 +893,13 @@ int k = 0, z = 1;
         wq_head = wq->head;
 
         while (!success) {	//read the object again if it's not consistent
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 1);
 
 #if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
-            create_wq_entry(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
+            CREATE_WQ_ENTRY(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
 #else
-            create_wq_entry(RMC_READ, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 2);
+            CREATE_WQ_ENTRY(RMC_READ, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
 #endif
             call_magic_2_64(wq_head, NEWWQENTRY, op_count);
             wq->head =  wq->head + 1;
@@ -794,29 +908,39 @@ int k = 0, z = 1;
                 wq->SR ^= 1;
             }
             //sync
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 3);
             cq_tail = cq->tail;
             while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
 #if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
             success = cq->q[cq_tail].success;
 #else
             success = 1; // remote read always succeeds
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 4);
 #endif
+
+#ifndef OLD_DEF
             wq->q[cq->q[cq_tail].tid].valid = 0;	//free WQ entry
+#endif
 
             cq->tail = cq->tail + 1;
             if (cq->tail >= MAX_NUM_WQ) {
                 cq->tail = 0;
                 cq->SR ^= 1;
-            }    
-            PASS2FLEXUS_MEASURE(i, MEASUREMENT, 10);
-            if (success) {	//No atomicity violation!
-                call_magic_2_64(cq_tail, SABRE_SUCCESS, op_count);
+            }  
+            
+            call_magic_2_64(cq_tail, WQENTRYDONE, op_count);
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 5);
+ 
+            int out = farm_memcopy_asm((void*)app_buff, (void*)lbuff_slot, data_obj_size, i);
+        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 35);
+            success = out;
+            PASS2FLEXUS_MEASURE(i, MEASUREMENT, 40);
+            //assert(out==1);
 
-                int out = farm_memcopy_asm((void*)app_buff, (void*)lbuff_slot, data_obj_size, i);
-                success = out;
-                //assert(out==1);
+            if (success) {	//No atomicity violation!
+                PASS2FLEXUS_DBG(cq_tail, SABRE_SUCCESS, op_count);
             } else {	//Atomicity violation detected
-                call_magic_2_64(cq_tail, SABRE_ABORT, op_count);
+                PASS2FLEXUS_DBG(cq_tail, SABRE_ABORT, op_count);
             }
 
             op_count++;
@@ -826,7 +950,7 @@ int k = 0, z = 1;
 
     }
     printf("%d", z);
-    call_magic_2_64(0, BENCHMARK_END, 0);	//this thread completed its work and it's exiting
+    PASS2FLEXUS_DBG(0, BENCHMARK_END, 0);	//this thread completed its work and it's exiting
     free(wq);
     free(cq);
 
@@ -932,8 +1056,8 @@ int main(int argc, char **argv)
     //fprintf(stdout, "Allocated %d pages for the context\n", counter);
     //}
     //register ctx and buffer sizes, only needed for the flexi version of the app; pass this info anyway
-    call_magic_2_64(42, BUFFER_SIZE, buf_size);
-    call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
+    call_magic_2_64(42, BUFFER_SIZE, 0);//buf_size);
+    call_magic_2_64(42, CONTEXT_SIZE, 0);//ctx_size);
     fprintf(stdout,"Init done! Allocated %d objects of %lu bytes (pure object data = %d, total size = %lu bytes).\nLocal buffer size = %lu Bytes.\nWill now allocate per-thread QPs and run with %d reader threads (SYNC) and %d writer threads.\nEach thread will execute %d ops (reads or writes).\nObject strided access: %d Bytes\n", 
 		num_objects, data_obj_size, data_obj_size, ctx_size, 
 		buf_size,
