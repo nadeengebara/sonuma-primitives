@@ -254,7 +254,6 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
     dst += CACHE_LINE_SIZE - hdr_size;
 
     int total_chunks = size/(16*CACHE_LINE_SIZE);
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 21);
 
     for (k=0; k < total_chunks; k++ ) {
         // check the cl versions
@@ -291,7 +290,6 @@ int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
                        "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
                 );
 
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 22);
         // the rest
         for (p=0; p<8; p++) {
             //printf("inner loop: src=%x, end=%x\n", src, chunk_end);
@@ -893,12 +891,11 @@ int k = 0, z = 1;
         wq_head = wq->head;
 
         while (!success) {	//read the object again if it's not consistent
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 1);
+            PASS2FLEXUS_MEASURE(i, MEASUREMENT, 10);
 
 #if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
             CREATE_WQ_ENTRY(RMC_SABRE, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
 #else
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 2);
             CREATE_WQ_ENTRY(RMC_READ, wq->SR, CTX_ID, DST_NID, (uint64_t)lbuff_slot, ctx_offset, payload_cache_blocks, (uint64_t)&(wq->q[wq_head]));
 #endif
             call_magic_2_64(wq_head, NEWWQENTRY, op_count);
@@ -908,14 +905,12 @@ int k = 0, z = 1;
                 wq->SR ^= 1;
             }
             //sync
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 3);
             cq_tail = cq->tail;
             while(cq->q[cq_tail].SR != cq->SR) {}	//wait for request completion (sync mode)
 #if defined(NO_SW_VERSION_CONTROL) && defined(ZERO_COPY)
             success = cq->q[cq_tail].success;
 #else
             success = 1; // remote read always succeeds
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 4);
 #endif
 
 #ifndef OLD_DEF
@@ -929,12 +924,9 @@ int k = 0, z = 1;
             }  
             
             call_magic_2_64(cq_tail, WQENTRYDONE, op_count);
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 5);
  
             int out = farm_memcopy_asm((void*)app_buff, (void*)lbuff_slot, data_obj_size, i);
-        PASS2FLEXUS_MEASURE(i, MEASUREMENT, 35);
             success = out;
-            PASS2FLEXUS_MEASURE(i, MEASUREMENT, 40);
             //assert(out==1);
 
             if (success) {	//No atomicity violation!

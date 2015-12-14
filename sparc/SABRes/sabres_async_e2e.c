@@ -136,6 +136,408 @@ int memcpyID = 16;
 
 pthread_barrier_t   barrier; 
 
+/** Copies a single data object.
+ *  We assume data_object_t layout for dst.
+ *  We assume data_object_t layout with cl_versions for src.
+ *  Currently, we assume 8-byte versions for both the header and per-cl versions.
+ */
+__attribute__ ((noinline))
+int farm_memcopy_asm(void *obj, void *buf, size_t total_size, int m) {
+asm("");
+    uintptr_t src = (uintptr_t)buf;
+    const uintptr_t start_src = (uintptr_t)src;
+    uintptr_t dst = (uintptr_t)obj;
+    size_t size = total_size;
+    int block_num = total_size/CACHE_LINE_SIZE;
+
+#ifdef NO_SW_VERSION_CONTROL
+    switch(memcpyID) {
+        case 16:
+            return my_memcopy((void *)dst, (void *)src, size, m);
+            break;
+        case 8:
+            return my_memcopy8((void *)dst, (void *)src, size, m);
+            break;
+        case 4:
+            return my_memcopy4((void *)dst, (void *)src, size, m);
+            break;
+        case 2:
+            return my_memcopy2((void *)dst, (void *)src, size, m);
+            break;
+        default:
+            assert(0);
+    }
+#else
+    return farm_memcopy_versions((void *)dst, (void *)src, size, m);
+#endif /* NO_SW_VERSION_CONTROL */
+}
+
+
+int farm_memcopy_versions(void *obj, void *buf, size_t total_size, int m) {
+    uintptr_t src = (uintptr_t)buf;
+    const uintptr_t start_src = (uintptr_t)src;
+    uintptr_t dst = (uintptr_t)obj;
+    size_t size = total_size;
+    int block_num = total_size/CACHE_LINE_SIZE;
+
+    data_object_t *my_obj = (data_object_t *)src;
+
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 20);
+    if (my_obj->lock) {
+        // the object is updating
+        //assert(0);
+        return 0;
+    }
+
+    version_t hdr_version = my_obj->version;
+    version_t *hdr_version_ptr = &hdr_version;
+
+    int i, k, p, ret_value;
+    src += hdr_size;
+
+    // first cache line
+    __asm__ __volatile__ (
+            // we assume HDR_SIZE = 16 bytes (version + lock + key)
+            "ldd [%1], %%f0\n\t"
+            "ldd [%1+8], %%f2\n\t"
+            "ldd [%1+16], %%f4\n\t"
+            "ldd [%1+24], %%f6\n\t"
+            "ldd [%1+32], %%f8\n\t"
+            "ldd [%1+40], %%f10\n\t"
+//            "ldd [%1+48], %%f12\n\t"
+//            "ldd [%1+56], %%f14\n\t"
+            "std %%f0, [%2]\n\t"
+            "std %%f2, [%2+8]\n\t"
+            "std %%f4, [%2+16]\n\t"
+            "std %%f6, [%2+24]\n\t"
+            "std %%f8, [%2+32]\n\t"
+            "std %%f10, [%2+40]\n\t"
+//            "std %%f12, [%2+48]\n\t"
+//            "std %%f14, [%2+56]\n\t"
+            : "=r"(ret_value)     /* output registers*/
+            : "r"(src), "r"(dst)      /* input registers*/
+            : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
+              "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
+            );
+    // src points to the 2nd cache block
+    src += CACHE_LINE_SIZE - hdr_size;
+    dst += CACHE_LINE_SIZE - hdr_size;
+
+    int total_chunks = size/(16*CACHE_LINE_SIZE);
+
+    for (k=0; k < total_chunks; k++ ) {
+        // check the cl versions
+        version_t cur_version_ptr = src;
+        //printf("%x - %x - k=%d, size=%d, srcptr=%x, src_begin=%x\n", *(unsigned*)hdr_version_ptr, *(unsigned*)cur_version_ptr, k, size, src, start_src);
+
+        uintptr_t chunk_end = MIN(src + (16*CACHE_LINE_SIZE), start_src+size);
+        unsigned delta = chunk_end - src;
+        //printf("outer loop: src=%x, end=%x\n", src, chunk_end);
+        __asm__ __volatile__(
+                "1:"
+                //
+                "ld [%1+4], %%i0\n\t"
+                "ld [%2+4], %%i1\n\t"
+                "cmp %%i0, %%i1\n\t"
+                "bne 2f\n\t"
+                "nop\n\t"
+                //
+                "add %2, 64, %2\n\t"
+                "cmp %2, %3\n\t"
+                "bne  1b\n\t" // go to the beginning of the loop
+                "nop\n\t"
+
+                "ba 3f\n\t"
+                "nop\n\t"
+                "2:\n\t" // version check failed
+                "rett %%i7 + 8\n\t"
+                "mov 0, %%o0\n\t"
+                "3:\n\t" // versions are correct
+                "sub %2, %4, %2\n\t" // this #!$%^ compiler assigns the same reg for cur_version_ptr and src
+                    : "=r"(ret_value)     /* output registers*/
+                    : "r"(start_src), "r"(cur_version_ptr), "r"(chunk_end), "r"(delta)      /* input registers*/
+                       : "%o0", "%i7", "%l0", "%l1", "%l2", "%i0", "%i1", "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15"  /* clobbered registers*/
+                );
+
+        // the rest
+        for (p=0; p<8; p++) {
+            //printf("inner loop: src=%x, end=%x\n", src, chunk_end);
+            if ( (p == 7) && ( k==total_chunks-1) ) {
+            //printf("last chunk: src=%x, end=%x\n", src, chunk_end);
+                // skip the last cache block from the last chunk
+            __asm__ __volatile__ (
+                    // we assume version size = 8 bytes
+                    "ldd [%1+8], %%f0\n\t"
+                    "ldd [%1+16], %%f2\n\t"
+                    "ldd [%1+24], %%f4\n\t"
+                    "ldd [%1+32], %%f6\n\t"
+                    "ldd [%1+40], %%f8\n\t"
+                    "ldd [%1+48], %%f10\n\t"
+                    "ldd [%1+56], %%f12\n\t"
+                    "std %%f0, [%2]\n\t"
+                    "std %%f2, [%2+8]\n\t"
+                    "std %%f4, [%2+16]\n\t"
+                    "std %%f6, [%2+24]\n\t"
+                    "std %%f8, [%2+32]\n\t"
+                    "std %%f10, [%2+40]\n\t"
+                    "std %%f12, [%2+48]\n\t"
+                    : "=r"(ret_value)     /* output registers*/
+                    : "r"(src), "r"(dst)      /* input registers*/
+                       : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13"  /* clobbered registers*/
+                           );
+                break;
+            }
+
+            __asm__ __volatile__ (
+                    // we assume version size = 8 bytes
+                    "ldd [%1+8], %%f0\n\t"
+                    "ldd [%1+16], %%f2\n\t"
+                    "ldd [%1+24], %%f4\n\t"
+                    "ldd [%1+32], %%f6\n\t"
+                    "ldd [%1+40], %%f8\n\t"
+                    "ldd [%1+48], %%f10\n\t"
+                    "ldd [%1+56], %%f12\n\t"
+                    //            "ldd [%1+56], %%f14\n\t"
+                    "ldd [%1+72], %%f14\n\t"
+                    "ldd [%1+80], %%f16\n\t"
+                    "ldd [%1+88], %%f18\n\t"
+                    "ldd [%1+96], %%f20\n\t"
+                    "ldd [%1+104], %%f22\n\t"
+                    "ldd [%1+112], %%f24\n\t"
+                    "ldd [%1+120], %%f26\n\t"
+                    //            "ldd [%1+56], %%f14\n\t"
+                    "std %%f0, [%2]\n\t"
+                    "std %%f2, [%2+8]\n\t"
+                    "std %%f4, [%2+16]\n\t"
+                    "std %%f6, [%2+24]\n\t"
+                    "std %%f8, [%2+32]\n\t"
+                    "std %%f10, [%2+40]\n\t"
+                    "std %%f12, [%2+48]\n\t"
+                    //            "std %%f14, [%2+56]\n\t"
+                    "std %%f14, [%2+56]\n\t"
+                    "std %%f16, [%2+64]\n\t"
+                    "std %%f18, [%2+72]\n\t"
+                    "std %%f20, [%2+80]\n\t"
+                    "std %%f22, [%2+88]\n\t"
+                    "std %%f24, [%2+96]\n\t"
+                    "std %%f26, [%2+104]\n\t"
+                    //            "std %%f14, [%2+56]\n\t"
+                    : "=r"(ret_value)     /* output registers*/
+                    : "r"(src), "r"(dst)      /* input registers*/
+                       : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",       /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27"  /* clobbered registers*/
+                           );
+
+            src += CACHE_LINE_SIZE*2;
+            dst += (CACHE_LINE_SIZE - sizeof(version_t))*2;
+            //printf("3src=%x\n\n", src);
+        }
+    }
+
+    PASS2FLEXUS_MEASURE(m, MEASUREMENT, 30);
+
+    // if we are here, all cache line versions match
+    //exit(0);
+    return 1;
+}
+
+__attribute__ ((noinline))
+int my_memcopy2(void *dst, void *src, int size, int k) {
+    int i=0, p, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+
+    // by 1KB
+    // each KB: first load first 8 bytes from 16 cache blocks, then the rest
+    for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                   : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                   "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                       );
+
+        dst+=1024;
+        src+=1024;
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+    return 1;
+}
+
+__attribute__ ((noinline))
+int my_memcopy4(void *dst, void *src, int size, int k) {
+    int i=0, p, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+
+    // by 1KB
+    // each KB: first load first 8 bytes from 16 cache blocks, then the rest
+    for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                "ldd [%1+128], %%f4\n\t"
+                "ldd [%1+192], %%f6\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                   : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                   "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                       );
+
+        dst+=1024;
+        src+=1024;
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+    return 1;
+}
+
+__attribute__ ((noinline))
+int my_memcopy8(void *dst, void *src, int size, int k) {
+    int i=0, p, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+
+    // by 1KB
+    // each KB: first load first 8 bytes from 16 cache blocks, then the rest
+    for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                "ldd [%1+128], %%f4\n\t"
+                "ldd [%1+192], %%f6\n\t"
+                "ldd [%1+256], %%f8\n\t"
+                "ldd [%1+320], %%f10\n\t"
+                "ldd [%1+384], %%f12\n\t"
+                "ldd [%1+448], %%f14\n\t"
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                   : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                   "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                       );
+
+        dst+=1024;
+        src+=1024;
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+    return 1;
+}
+
+__attribute__ ((noinline))
+int my_memcopy(void *dst, void *src, int size, int k) {
+    int i=0, p, ret_value;
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 20);
+
+    // by 1KB
+    // each KB: first load first 8 bytes from 16 cache blocks, then the rest
+    for (i=0; i<size/(16*CACHE_LINE_SIZE); i++) {
+        __asm__ __volatile__ (
+                //"LOAD_SEQ:"
+                "ldd [%1], %%f0\n\t"
+                "ldd [%1+64], %%f2\n\t"
+                "ldd [%1+128], %%f4\n\t"
+                "ldd [%1+192], %%f6\n\t"
+                "ldd [%1+256], %%f8\n\t"
+                "ldd [%1+320], %%f10\n\t"
+                "ldd [%1+384], %%f12\n\t"
+                "ldd [%1+448], %%f14\n\t"
+                "ldd [%1+512], %%f16\n\t"
+                "ldd [%1+576], %%f18\n\t"
+                "ldd [%1+640], %%f20\n\t"
+                "ldd [%1+704], %%f22\n\t"
+                "ldd [%1+768], %%f24\n\t"
+                "ldd [%1+832], %%f26\n\t"
+                "ldd [%1+896], %%f28\n\t"
+                "ldd [%1+960], %%f30\n\t"
+#ifndef ZERO_COPY
+                "std %%f0, [%2]\n\t"
+                "std %%f2, [%2+64]\n\t"
+                "std %%f4, [%2+128]\n\t"
+                "std %%f6, [%2+192]\n\t"
+                "std %%f8, [%2+256]\n\t"
+                "std %%f10, [%2+320]\n\t"
+                "std %%f12, [%2+384]\n\t"
+                "std %%f14, [%2+448]\n\t"
+                "std %%f16, [%2+512]\n\t"
+                "std %%f18, [%2+576]\n\t"
+                "std %%f20, [%2+640]\n\t"
+                "std %%f22, [%2+704]\n\t"
+                "std %%f24, [%2+768]\n\t"
+                "std %%f26, [%2+832]\n\t"
+                "std %%f28, [%2+896]\n\t"
+                "std %%f30, [%2+960]\n\t"
+#endif /* ZERO_COPY */
+                : "=r"(ret_value)     /* output registers*/
+                : "r"(src), "r"(dst)      /* input registers*/
+                   : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                   "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                   "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                   "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                       );
+
+        // by 2 cache blocks
+#ifndef ZERO_COPY
+        for (p=0; p < 8; p++) {
+            __asm__ __volatile__ (
+                    //                "ldd [%1], %%f0\n\t"
+                    "ldd [%1+8], %%f2\n\t"
+                    "ldd [%1+16], %%f4\n\t"
+                    "ldd [%1+24], %%f6\n\t"
+                    "ldd [%1+32], %%f8\n\t"
+                    "ldd [%1+40], %%f10\n\t"
+                    "ldd [%1+48], %%f12\n\t"
+                    "ldd [%1+56], %%f14\n\t"
+
+                    "ldd [%1+72], %%f16\n\t"
+                    "ldd [%1+80], %%f18\n\t"
+                    "ldd [%1+88], %%f20\n\t"
+                    "ldd [%1+96], %%f22\n\t"
+                    "ldd [%1+104], %%f24\n\t"
+                    "ldd [%1+112], %%f26\n\t"
+                    "ldd [%1+120], %%f28\n\t"
+                    //                "std %%f0, [%2]\n\t"
+                    "std %%f2, [%2+8]\n\t"
+                    "std %%f4, [%2+16]\n\t"
+                    "std %%f6, [%2+24]\n\t"
+                    "std %%f8, [%2+32]\n\t"
+                    "std %%f10, [%2+40]\n\t"
+                    "std %%f12, [%2+48]\n\t"
+                    "std %%f14, [%2+56]\n\t"
+
+                    "std %%f16, [%2+72]\n\t"
+                    "std %%f18, [%2+80]\n\t"
+                    "std %%f20, [%2+88]\n\t"
+                    "std %%f22, [%2+96]\n\t"
+                    "std %%f24, [%2+104]\n\t"
+                    "std %%f26, [%2+112]\n\t"
+                    "std %%f28, [%2+120]\n\t"
+                    : "=r"(ret_value)     /* output registers*/
+                    : "r"(src), "r"(dst)      /* input registers*/
+                       : "%f0", "%f1", "%f2", "%f3", "%f4", "%f5", "%f6", "%f7",   /* clobbered registers*/
+                       "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",  /* clobbered registers*/
+                       "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",  /* clobbered registers*/
+                       "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"  /* clobbered registers*/
+                           );
+            dst+=128;
+            src+=128;
+        }
+#else
+        dst+=1024;
+        src+=1024;
+#endif /* ZERO_COPY */
+    }
+    PASS2FLEXUS_MEASURE(k, MEASUREMENT, 30);
+    return 1;
+}
+
 void * par_phase_write(void *arg) {
     parm *p=(parm *)arg;
      
@@ -334,7 +736,10 @@ void * par_phase_read(void *arg) {
 			cq->tail = 0;
 			cq->SR ^= 1;
 		  }    
-		  
+		 
+#ifdef FARM_VS
+                  int out = farm_memcopy_asm((void*)app_buff, (void*)lbuff_slot, data_obj_size, op_count_completed);
+#endif
 		  call_magic_2_64(tid, WQENTRYDONE, op_count_completed);
 		  cq_tail = cq->tail;
 		}
@@ -445,6 +850,10 @@ int main(int argc, char **argv)
 #else
 #error "Both NO_SW_VERSION_CONTROL and ZERO_COPY must be defined"
 #endif
+
+#ifdef FARM_VS
+    printf("=======\nRunning with FARM-like versions check\n======\n");
+#endif
     fprintf(stdout,"Application buffer size is %d bytes\n", APP_BUFF_SIZE);
     uint64_t ctx_size = atoi(argv[1])*1024;
     data_obj_size = atoi(argv[4]);
@@ -530,7 +939,7 @@ int main(int argc, char **argv)
     //register ctx and buffer sizes, only needed for the flexi version of the app; pass this info anyway
     call_magic_2_64(42, BUFFER_SIZE, buf_size);
     call_magic_2_64(42, CONTEXT_SIZE, ctx_size);
-    fprintf(stdout,"Init done! Allocated %d objects of %lu bytes (pure object data = %d, total size = %lu bytes).\nLocal buffer size = %lu Bytes.\nWill now allocate per-thread QPs and run with %d reader threads (SYNC) and %d writer threads.\nEach thread will execute %d ops (reads or writes).\nObject strided access: %d Bytes\n", 
+    fprintf(stdout,"Init done! Allocated %d objects of %lu bytes (pure object data = %d, total size = %lu bytes).\nLocal buffer size = %lu Bytes.\nWill now allocate per-thread QPs and run with %d reader threads (ASYNC) and %d writer threads.\nEach thread will execute %d ops (reads or writes).\nObject strided access: %d Bytes\n", 
 		num_objects, data_obj_size, data_obj_size, ctx_size, 
 		buf_size,
 		readers,writers,
