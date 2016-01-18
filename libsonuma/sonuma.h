@@ -341,6 +341,7 @@ static inline void rmc_rread_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slo
 
 // ustiugov: introduced in API 2.2
 //returns 1 on success, 0 on fail
+#ifdef FLEXUS
 static uint8_t rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifdef FLEXUS
     DLogPerf("[sonuma] rmc_sabre_sync called in Flexus mode.");
@@ -423,6 +424,8 @@ static uint8_t rmc_sabre_sync(rmc_wq_t *wq, rmc_cq_t *cq, uint64_t lbuff_slot, i
     }    
     return cq->q[cq_tail].success;
 }
+
+#endif
 
 static inline void rmc_rwrite(rmc_wq_t *wq, uint64_t lbuff_slot, int snid, uint32_t ctx_id, uint64_t ctx_offset, uint64_t length) {
 #ifdef FLEXUS

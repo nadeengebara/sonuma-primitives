@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <assert.h>
 
+#define DEBUG_RMC
+
 //server information
 static server_info_t *sinfo;
 

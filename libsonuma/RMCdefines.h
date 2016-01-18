@@ -9,8 +9,8 @@
 #define H_RMC_DEFINES
 
 //#define FLEXI_MODE  // do not use flexi mode unless for flexus ubenches
-#define FLEXUS
-#define PROTOCOL_v2_2
+//#define FLEXUS
+//#define PROTOCOL_v2_2
 
 #ifdef FLEXUS
 //#ifdef PROTOCOL_v2_2

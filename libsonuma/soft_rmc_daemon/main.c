@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <assert.h>
 
-#ifndef RMCD_DEBUG
+#ifndef DEBUG_RMC
 #define DLog(M, ...)
 #else
 #define DLog(M, ...) fprintf(stdout, "DEBUG %s:%d: " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
@@ -454,6 +454,13 @@ int ctx_alloc_grant_map(char **mem, unsigned page_cnt) {
   return 0;
 }
 
+const nam_version_t LOCKED_MASK = 1;
+const nam_version_t UPDATING_MASK = 2;
+
+inline bool version_is_updating(nam_version_t version) {
+  return (version & UPDATING_MASK) != 0;
+}
+
 int main(int argc, char **argv) {
   int i;
 
@@ -509,6 +516,8 @@ int main(int argc, char **argv) {
   int s, abort_cnt;
 
   unsigned long buf_cnt = 0;
+
+  int consistent = 1;
   
   while(rmc_active) {
     while (wq->q[local_wq_tail].SR == local_wq_SR) {
@@ -526,10 +535,13 @@ int main(int argc, char **argv) {
 	    //HW OCC implementation
 #ifdef HW_OCC
 	    for(i = 0; i < OBJ_COUNT; i++) {
-	      abort_cnt = 0;
-	      do {
+	      //abort_cnt = 0;
+	      consistent = 1;
+	      while(consistent) {
+		/*
 		if(abort_cnt > 0)
 		  printf("[abort detected; abort_cnt = %u\n", abort_cnt);
+		*/
 		object_offset = i * (curr->length/OBJ_COUNT);
 		//memcpy((uint8_t *)(curr->buf_addr + object_offset),
 		//     ctx[curr->nid] + curr->offset + object_offset,
@@ -539,8 +551,15 @@ int main(int argc, char **argv) {
 		       curr->length/OBJ_COUNT);
 		header_src = (nam_obj_header *)(ctx[curr->nid] + curr->offset + object_offset);
 		header_dst = (nam_obj_header *)(local_buffer + curr->buf_addr + object_offset);
-		abort_cnt++;
-	      } while(header_src->version != header_dst->version);
+		if(header_src->version == header_dst->version) {
+		  if(!version_is_updating(header_dst->version))
+		    consistent = 0;
+		}
+		/*
+		if(consistent)
+		  abort_cnt++;
+		*/
+	      } //while(header_src->version != header_dst->version);
 	    }
 #else
 	    //old version w/o HW OCC
