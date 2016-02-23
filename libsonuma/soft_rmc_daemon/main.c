@@ -10,6 +10,15 @@
 #include <unistd.h>
 #include <assert.h>
 
+#include <vector>
+#include <algorithm>
+
+using namespace std;
+
+#define BILLION 1000000000
+
+//#define DEBUG_PERF_RMC
+
 #ifndef DEBUG_RMC
 #define DLog(M, ...)
 #else
@@ -518,86 +527,117 @@ int main(int argc, char **argv) {
   unsigned long buf_cnt = 0;
 
   int consistent = 1;
+
+#ifdef DEBUG_PERF_RMC
+  struct timespec start_time, end_time;
+  uint64_t start_time_ns, end_time_ns;
+  vector<uint64_t> stimes;
+#endif
   
   while(rmc_active) {
     while (wq->q[local_wq_tail].SR == local_wq_SR) {
-#ifdef DEBUG_RMC
-	    printf("[soft_rmc] reading remote memory, offset = %lu\n",
-	    	   wq->q[local_wq_tail].offset);
-
-	    printf("[soft_rmc] buffer address %lu\n",
-	    	   wq->q[local_wq_tail].buf_addr);
-
-	    printf("[soft_rmc] nid = %d; offset = %d, len = %d\n", wq->q[local_wq_tail].nid, wq->q[local_wq_tail].offset, wq->q[local_wq_tail].length);
+#ifdef DEBUG_PERF_RMC
+      clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
-	    curr = &(wq->q[local_wq_tail]);
-
-	    //HW OCC implementation
+      
+#ifdef DEBUG_RMC      
+      printf("[soft_rmc] reading remote memory, offset = %lu\n",
+	     wq->q[local_wq_tail].offset);
+      
+      printf("[soft_rmc] buffer address %lu\n",
+	     wq->q[local_wq_tail].buf_addr);
+      
+      printf("[soft_rmc] nid = %d; offset = %d, len = %d\n", wq->q[local_wq_tail].nid, wq->q[local_wq_tail].offset, wq->q[local_wq_tail].length);
+#endif
+      curr = &(wq->q[local_wq_tail]);
+      
+      //HW OCC implementation
 #ifdef HW_OCC
-	    for(i = 0; i < OBJ_COUNT; i++) {
-	      //abort_cnt = 0;
-	      consistent = 1;
-	      while(consistent) {
-		/*
-		if(abort_cnt > 0)
-		  printf("[abort detected; abort_cnt = %u\n", abort_cnt);
-		*/
-		object_offset = i * (curr->length/OBJ_COUNT);
-		//memcpy((uint8_t *)(curr->buf_addr + object_offset),
-		//     ctx[curr->nid] + curr->offset + object_offset,
-		//     curr->length/OBJ_COUNT);
-		memcpy((uint8_t *)(local_buffer + curr->buf_addr + object_offset),
-		       ctx[curr->nid] + curr->offset + object_offset,
-		       curr->length/OBJ_COUNT);
-		header_src = (nam_obj_header *)(ctx[curr->nid] + curr->offset + object_offset);
-		header_dst = (nam_obj_header *)(local_buffer + curr->buf_addr + object_offset);
-		if(header_src->version == header_dst->version) {
-		  if(!version_is_updating(header_dst->version))
-		    consistent = 0;
-		}
-		/*
-		if(consistent)
-		  abort_cnt++;
-		*/
-	      } //while(header_src->version != header_dst->version);
-	    }
-#else
-	    //old version w/o HW OCC
-	    memcpy((uint8_t *)(local_buffer + curr->buf_addr),
-		   ctx[curr->nid] + curr->offset,
-		   curr->length);
-	    //buf_cnt++;
-	    //printf("[rmcd] buffer count %u\n", buf_cnt);
-#endif
-	    
-	    compl_idx = local_wq_tail;
-
-	    local_wq_tail += 1;
-	    if (local_wq_tail >= MAX_NUM_WQ) {
-		local_wq_tail = 0;
-		local_wq_SR ^= 1;
-	    }
-	    
-	    //notify the application
-	    cq->q[local_cq_head].tid = compl_idx;
-	    cq->q[local_cq_head].SR = local_cq_SR;
-
-	    local_cq_head += 1;
-	    if(local_cq_head >= MAX_NUM_WQ) {
-		local_cq_head = 0;
-		local_cq_SR ^= 1;
-	    }
+      printf("[rmcd] this should not pop up\n");
+      for(i = 0; i < OBJ_COUNT; i++) {
+	//abort_cnt = 0;
+	consistent = 1;
+	while(consistent) {
+	  object_offset = i * (curr->length/OBJ_COUNT);
+	  memcpy((uint8_t *)(local_buffer + curr->buf_addr + object_offset),
+		 ctx[curr->nid] + curr->offset + object_offset,
+		 curr->length/OBJ_COUNT);
+	  header_src = (nam_obj_header *)(ctx[curr->nid] + curr->offset + object_offset);
+	  header_dst = (nam_obj_header *)(local_buffer + curr->buf_addr + object_offset);
+	  if(header_src->version == header_dst->version) {
+	    if(!version_is_updating(header_dst->version))
+	      consistent = 0;
+	  }
 	}
-    }
-    
-    soft_rmc_ctx_destroy();
-    
-    printf("[soft_rmc] RMC deactivated\n");
-    
-    return 0;
+      }
+#else
+      //old version w/o HW OCC
+      memcpy((uint8_t *)(local_buffer + curr->buf_addr),
+	     ctx[curr->nid] + curr->offset,
+	     curr->length);
+
+#ifdef DEBUG_PERF_RMC
+      clock_gettime(CLOCK_MONOTONIC, &end_time);
+      start_time_ns = BILLION * start_time.tv_sec + start_time.tv_nsec;
+      end_time_ns = BILLION * end_time.tv_sec + end_time.tv_nsec;
+      printf("[rmcd] memcpy latency: %u ns\n", end_time_ns - start_time_ns);
+#endif
+      
+#endif
+
+#ifdef DEBUG_PERF_RMC
+      clock_gettime(CLOCK_MONOTONIC, &start_time);
+#endif
+      
+      compl_idx = local_wq_tail;
+      
+      local_wq_tail += 1;
+      if (local_wq_tail >= MAX_NUM_WQ) {
+	local_wq_tail = 0;
+	local_wq_SR ^= 1;
+      }
+      
+      //notify the application
+      cq->q[local_cq_head].tid = compl_idx;
+      cq->q[local_cq_head].SR = local_cq_SR;
+      
+      local_cq_head += 1;
+      if(local_cq_head >= MAX_NUM_WQ) {
+	local_cq_head = 0;
+	local_cq_SR ^= 1;
+      }
+
+#ifdef DEBUG_PERF_RMC
+      clock_gettime(CLOCK_MONOTONIC, &end_time);
+      start_time_ns = BILLION * start_time.tv_sec + start_time.tv_nsec;
+      end_time_ns = BILLION * end_time.tv_sec + end_time.tv_nsec;
+      printf("[rmcd] notification latency: %u ns\n", end_time_ns - start_time_ns);
+#endif
+      
+#ifdef DEBUG_RMC
+      stimes.insert(stimes.begin(), end_time_ns - start_time_ns);
+      
+      if(stimes.size() == 100) {
+	long sum = 0;
+	sort(stimes.begin(), stimes.end());
+	for(int i=0; i<100; i++)
+	  sum += stimes[i];
+	
+	while (!stimes.empty())
+	  stimes.pop_back();
+      }
+#endif
+    }    
+  }
+  
+  soft_rmc_ctx_destroy();
+  
+  printf("[soft_rmc] RMC deactivated\n");
+  
+  return 0;
 }
 
 void deactivate_rmc() {
-    rmc_active = false;
+  rmc_active = false;
 }
 

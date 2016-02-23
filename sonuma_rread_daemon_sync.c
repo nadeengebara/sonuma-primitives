@@ -17,6 +17,13 @@ rmc_cq_t *cq;
 
 using namespace std;
 
+static __inline__ unsigned long long rdtsc(void) {
+  unsigned long hi, lo;
+  __asm__ __volatile__ ("xorl %%eax,%%eax\ncpuid" ::: "%rax", "%rbx", "%rcx", "%rdx");
+  __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
+  return ((unsigned long long)lo) | (((unsigned long long)hi)<<32) ;
+}
+
 int main(int argc, char **argv) {
     int num_iter = (int)ITERS;
 
@@ -56,20 +63,24 @@ int main(int argc, char **argv) {
     struct timespec start_time, end_time;
     uint64_t start_time_ns, end_time_ns;
     vector<uint64_t> stimes;
+    unsigned long long start, end;
     
     for(size_t i = 0; i < num_iter; i++) {
         lbuff_slot = (i * SLOT_SIZE) % (buf_size - SLOT_SIZE);
         ctx_offset = (i * SLOT_SIZE) % (ctx_size - SLOT_SIZE);
 
-	clock_gettime(CLOCK_MONOTONIC, &start_time);	
+	//clock_gettime(CLOCK_MONOTONIC, &start_time);
+	start = rdtsc();
 
 	rmc_rread_sync(wq, cq, lbuff_slot, snid, CTX_0, ctx_offset, OBJ_READ_SIZE);
 
-	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	//clock_gettime(CLOCK_MONOTONIC, &end_time);
+	end = rdtsc();
 
-	start_time_ns = BILLION * start_time.tv_sec + start_time.tv_nsec;
-	end_time_ns = BILLION * end_time.tv_sec + end_time.tv_nsec;
-	
+	//start_time_ns = BILLION * start_time.tv_sec + start_time.tv_nsec;
+	//end_time_ns = BILLION * end_time.tv_sec + end_time.tv_nsec;
+
+	/*
 	stimes.insert(stimes.begin(), end_time_ns - start_time_ns);
 
 	if(stimes.size() == 100) {
@@ -82,6 +93,8 @@ int main(int argc, char **argv) {
 	  while (!stimes.empty())
 	    stimes.pop_back();
 	}
+	*/
+	printf("time to execute this op: %lf ns\n", ((double)end - start)/2.4);
 	//printf("[app] sync op %u\n", i);
     }
 
